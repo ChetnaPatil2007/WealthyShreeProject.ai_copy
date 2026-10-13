@@ -1,0 +1,10 @@
+{
+  "description": "WealthSphere.ai is a comprehensive wealth management platform offering personalized financial planning, investment tracking, and compliance tools for individuals, families, and financial professionals.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
