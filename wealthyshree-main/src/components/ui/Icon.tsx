@@ -154,9 +154,10 @@ export interface IconProps {
   name: IconName
   size?: number
   className?: string
+  style?: React.CSSProperties
 }
 
-export function Icon({ name, size = 18, className = "" }: IconProps) {
+export function Icon({ name, size = 18, className = "", style }: IconProps) {
   return (
     <svg
       className={`icon ${className}`.trim()}
@@ -169,6 +170,7 @@ export function Icon({ name, size = 18, className = "" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      style={style}
     >
       {iconPaths[name]}
     </svg>

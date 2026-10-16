@@ -3,8 +3,9 @@ import { Icon } from "../ui/Icon"
 
 export interface SidebarProps {
   roleConfig: RoleConfig
-  active: string
-  onSelect: (navName: string) => void
+  active?: string
+  activeId?: string
+  onSelect: (navId: string) => void
   open: boolean
   setOpen: (v: boolean) => void
   onNavigateHome?: () => void
@@ -13,11 +14,13 @@ export interface SidebarProps {
 export function Sidebar({
   roleConfig,
   active,
+  activeId,
   onSelect,
   open,
   setOpen,
   onNavigateHome,
 }: SidebarProps) {
+  const currentActive = activeId ?? active
   return (
     <>
       {open && (
@@ -86,7 +89,9 @@ export function Sidebar({
             <div className="nav-section" key={section.label}>
               <span className="nav-label">{section.label}</span>
               {section.items.map((item) => {
-                const isActive = active === item.name
+                const isActive = currentActive
+                  ? item.id === currentActive || item.name === currentActive
+                  : false
 
                 return (
                   <button
@@ -94,7 +99,7 @@ export function Sidebar({
                     type="button"
                     className={`nav-item ${isActive ? "active" : ""}`}
                     onClick={() => {
-                      onSelect(item.name)
+                      onSelect(item.id)
                       setOpen(false)
                     }}
                   >

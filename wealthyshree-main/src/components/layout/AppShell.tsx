@@ -4,7 +4,13 @@ import type {
   UserSession,
   RoleQuickAction,
 } from "../../types/roles"
-import { getRoleConfig, authorizeAction } from "../../config/roles"
+import {
+  getRoleConfig,
+  authorizeAction,
+  getDefaultNavItem,
+  findNavItem,
+  isDefaultDashboard,
+} from "../../config/roles"
 import { getNotificationsForRole } from "../../config/notifications"
 import { getTableConfigForRole } from "../../config/roleTableData"
 import { Icon } from "../ui/Icon"
@@ -37,7 +43,13 @@ import { SuperAdminDashboard } from "../../features/dashboards/SuperAdminDashboa
 export interface AppShellProps {
   currentRoleName: string
   onRoleChange: (newRole: string) => void
-  renderModulePage: (moduleName: string, openAI: () => void) => React.ReactNode
+  renderModulePage: (
+    roleKey: RoleConfig["key"],
+    navId: string,
+    navName: string,
+    openAI: () => void,
+    onNavigate: (target: string) => void,
+  ) => React.ReactNode
   renderAIPanel: (onClose: () => void) => React.ReactNode
   onNavigateHome?: () => void
 }
@@ -54,19 +66,23 @@ export function AppShell({
     [currentRoleName],
   )
 
-  const defaultTab = roleConfig.navigationMenu[0]?.items[0]?.name || "Dashboard"
-  const [activeTab, setActiveTab] = useState<string>(defaultTab)
+  const defaultNavItem = useMemo(
+    () => getDefaultNavItem(roleConfig),
+    [roleConfig],
+  )
+
+  const [activeNavId, setActiveNavId] = useState<string>(defaultNavItem.id)
   const [dark, setDark] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const { showToast } = useToast()
 
-  // Synchronize activeTab if user switches roles
+  // Synchronize activeNavId when user switches roles
   const [lastRoleKey, setLastRoleKey] = useState(roleConfig.key)
   if (lastRoleKey !== roleConfig.key) {
     setLastRoleKey(roleConfig.key)
-    setActiveTab(defaultTab)
+    setActiveNavId(defaultNavItem.id)
   }
 
   // Zero-trust user session: selecting a role view DOES NOT grant permissions
@@ -95,29 +111,22 @@ export function AppShell({
     [roleConfig.key],
   )
 
-  const isHomeTab =
-    activeTab === defaultTab ||
-    activeTab === "Wealth Dashboard" ||
-    activeTab === "Overview" ||
-    activeTab === "Family Overview" ||
-    activeTab === "Student Dashboard" ||
-    activeTab === "Advisor Overview" ||
-    activeTab === "CA Dashboard" ||
-    activeTab === "Tax Dashboard" ||
-    activeTab === "Investment Overview" ||
-    activeTab === "Insurance Overview" ||
-    activeTab === "Coaching Dashboard" ||
-    activeTab === "Family Office Overview" ||
-    activeTab === "Private Banking Overview" ||
-    activeTab === "HR Dashboard" ||
-    activeTab === "University Dashboard" ||
-    activeTab === "Government Dashboard" ||
-    activeTab === "Audit Dashboard" ||
-    activeTab === "Admin Overview" ||
-    activeTab === "Super Admin Console" ||
-    activeTab === roleConfig.navigationMenu[0]?.items[0]?.name
+  const currentNavItem = useMemo(
+    () => findNavItem(roleConfig, activeNavId) || defaultNavItem,
+    [roleConfig, activeNavId, defaultNavItem],
+  )
 
-  const pageTitle = isHomeTab ? roleConfig.dashboardTitle : activeTab
+  const isHomeTab = isDefaultDashboard(roleConfig, currentNavItem.id)
+  const pageTitle = isHomeTab ? roleConfig.dashboardTitle : currentNavItem.name
+
+  const handleNavigate = (target: string) => {
+    const matched = findNavItem(roleConfig, target)
+    if (matched) {
+      setActiveNavId(matched.id)
+    } else {
+      setActiveNavId(target)
+    }
+  }
 
   const handleQuickAction = (action: RoleQuickAction) => {
     const auth = authorizeAction(userSession, action, roleConfig)
@@ -165,8 +174,8 @@ export function AppShell({
     <div className={`app-shell ${dark ? "dark" : ""}`}>
       <Sidebar
         roleConfig={roleConfig}
-        active={activeTab}
-        onSelect={setActiveTab}
+        activeId={currentNavItem.id}
+        onSelect={handleNavigate}
         open={sidebarOpen}
         setOpen={setSidebarOpen}
         onNavigateHome={onNavigateHome}
@@ -183,6 +192,7 @@ export function AppShell({
           onSelectRole={onRoleChange}
           notifications={notifications}
           onNavigateHome={onNavigateHome}
+          onNavigate={handleNavigate}
         />
 
         <main className="main-content">
@@ -190,97 +200,97 @@ export function AppShell({
             roleConfig.key === "individual" ? (
               <IndividualDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "family" ? (
               <FamilyDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "student" ? (
               <StudentDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "financial_advisor" ? (
               <FinancialAdvisorDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "ca" ? (
               <CADashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "tax_consultant" ? (
               <TaxConsultantDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "investment_manager" ? (
               <InvestmentManagerDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "insurance_advisor" ? (
               <InsuranceAdvisorDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "wealth_coach" ? (
               <WealthCoachDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "family_office" ? (
               <FamilyOfficeDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "private_bank" ? (
               <PrivateBankDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "corporate_hr" ? (
               <CorporateHRDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "university" ? (
               <UniversityDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "government_organizations" ? (
               <GovernmentDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "auditors" ? (
               <AuditorDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "super_admin" ? (
               <SuperAdminDashboard
                 roleConfig={roleConfig}
-                onNavigate={setActiveTab}
+                onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : (
@@ -370,7 +380,7 @@ export function AppShell({
                       <button
                         type="button"
                         className="button button--icon"
-                        onClick={() => setActiveTab("Financial Health")}
+                        onClick={() => handleNavigate("financial_health")}
                         aria-label="View financial health"
                       >
                         <Icon name="chevron" size={16} />
@@ -506,7 +516,7 @@ export function AppShell({
                     <div className="recommendations">
                       <button
                         type="button"
-                        onClick={() => setActiveTab("Tax Planning")}
+                        onClick={() => handleNavigate("tax_planning")}
                       >
                         <span className="rec-icon green">
                           <Icon name="tax" size={16} />
@@ -523,7 +533,7 @@ export function AppShell({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveTab("Insurance")}
+                        onClick={() => handleNavigate("insurance")}
                       >
                         <span className="rec-icon orange">
                           <Icon name="insurance" size={16} />
@@ -540,7 +550,7 @@ export function AppShell({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveTab("Portfolio")}
+                        onClick={() => handleNavigate("portfolio")}
                       >
                         <span className="rec-icon purple">
                           <Icon name="pie" size={16} />
@@ -584,7 +594,13 @@ export function AppShell({
               </div>
             )
           ) : (
-            renderModulePage(activeTab, () => setAiOpen(true))
+            renderModulePage(
+              roleConfig.key,
+              currentNavItem.id,
+              currentNavItem.name,
+              () => setAiOpen(true),
+              handleNavigate,
+            )
           )}
         </main>
 
@@ -594,8 +610,8 @@ export function AppShell({
             <button
               key={i.id}
               type="button"
-              className={activeTab === i.name ? "active" : ""}
-              onClick={() => setActiveTab(i.name)}
+              className={currentNavItem.id === i.id ? "active" : ""}
+              onClick={() => handleNavigate(i.id)}
             >
               <Icon name={i.icon} size={16} />
               <span>{i.name.replace("Wealth ", "")}</span>

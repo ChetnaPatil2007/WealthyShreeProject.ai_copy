@@ -359,7 +359,7 @@ export function StudentDashboard({
                 "Simulated extra $50/mo accelerated repayment saves $1,420 in accrued interest.",
               tone: "info",
             })
-            onNavigate("Student Loans")
+            onNavigate("Savings Goals")
           } else if (action.id === "find_grants") {
             showToast({
               title: "Scholarship Radar",
@@ -481,7 +481,7 @@ export function StudentDashboard({
                     "Launching Module 9: Dollar-Cost Averaging & Index Funds simulation.",
                   tone: "info",
                 })
-                onNavigate("Courses")
+                onNavigate("Learn Finance")
               }}
             >
               <span>Continue Learning (15 min)</span>

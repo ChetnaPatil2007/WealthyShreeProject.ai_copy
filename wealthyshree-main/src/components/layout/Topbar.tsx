@@ -15,6 +15,7 @@ export interface TopbarProps {
   onSelectRole: (roleName: string) => void
   notifications: NotificationItem[]
   onNavigateHome?: () => void
+  onNavigate?: (target: string) => void
 }
 
 export function Topbar({
@@ -27,6 +28,7 @@ export function Topbar({
   onSelectRole,
   notifications,
   onNavigateHome,
+  onNavigate,
 }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -172,19 +174,43 @@ export function Topbar({
             </div>
             <div className="search-suggestions">
               <span className="search-section-label">SUGGESTED ACTIONS</span>
-              <button type="button" onClick={() => setSearchOpen(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.("tax_planning")
+                  setSearchOpen(false)
+                }}
+              >
                 <Icon name="tax" size={15} />{" "}
                 <span>Review 2025 Tax Harvest Offsets</span>
               </button>
-              <button type="button" onClick={() => setSearchOpen(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.("assets_liabilities")
+                  setSearchOpen(false)
+                }}
+              >
                 <Icon name="bank" size={15} />{" "}
                 <span>Connect Institution via Open Banking</span>
               </button>
-              <button type="button" onClick={() => setSearchOpen(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.("wealth_tree")
+                  setSearchOpen(false)
+                }}
+              >
                 <Icon name="family" size={15} />{" "}
                 <span>Open Family Wealth Tree Map</span>
               </button>
-              <button type="button" onClick={() => setSearchOpen(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate?.("audit_trail")
+                  setSearchOpen(false)
+                }}
+              >
                 <Icon name="shield" size={15} />{" "}
                 <span>Run Zero-Trust Audit Integrity Verification</span>
               </button>

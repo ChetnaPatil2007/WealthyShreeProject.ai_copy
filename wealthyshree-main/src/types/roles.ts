@@ -105,3 +105,7 @@ export interface AuthorizationResult {
   requiredPermission?: Permission
   requiresVerification?: boolean
 }
+
+/** Unique page key combining role key and navigation item ID (e.g. 'family:investments') */
+export type PageKey = `${RoleKey}:${string}`
+

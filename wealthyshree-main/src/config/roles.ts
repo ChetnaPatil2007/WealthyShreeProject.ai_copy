@@ -1,11 +1,14 @@
 import type {
   AuthorizationResult,
+  PageKey,
   Permission,
   RoleConfig,
   RoleKey,
+  RoleNavItem,
   RoleQuickAction,
   UserSession,
 } from "../types/roles"
+
 
 export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
   individual: {
@@ -2865,3 +2868,111 @@ export function authorizeAction(
       : `Your current session lacks the required permission: ${action.requiredPermission}`,
   }
 }
+
+/** Known role-specific aliases or legacy targets that map to real navigation items */
+const NAVIGATION_ALIASES: Record<string, Record<string, string>> = {
+  student: {
+    student_loans: "savings_goals",
+    "student loans": "savings_goals",
+  },
+}
+
+/**
+ * Returns the default dashboard navigation item for a given role.
+ * Source of truth: The first item in the first navigation section.
+ */
+export function getDefaultNavItem(
+  role: RoleConfig | RoleKey | string,
+): RoleNavItem {
+  const config =
+    typeof role === "object" && "navigationMenu" in role
+      ? role
+      : getRoleConfig(role)
+  return config.navigationMenu[0]?.items[0]
+}
+
+/**
+ * Resolves any nav item identifier (ID, display name, or alias) within a role's
+ * navigation hierarchy to its canonical RoleNavItem.
+ */
+export function findNavItem(
+  role: RoleConfig | RoleKey | string,
+  identifier?: string | null,
+): RoleNavItem | undefined {
+  if (!identifier) return undefined
+
+  const config =
+    typeof role === "object" && "navigationMenu" in role
+      ? role
+      : getRoleConfig(role)
+
+  const raw = identifier.trim()
+  const lower = raw.toLowerCase()
+  const strict = lower.replace(/[\s_-]+/g, "")
+
+  // Check role-specific aliases
+  const roleAliases = NAVIGATION_ALIASES[config.key]
+  const resolvedTarget = roleAliases?.[lower] || roleAliases?.[strict] || raw
+
+  for (const section of config.navigationMenu) {
+    for (const item of section.items) {
+      if (item.id === resolvedTarget || item.id === raw) return item
+      if (item.id.toLowerCase() === lower) return item
+      if (item.name === resolvedTarget || item.name === raw) return item
+      if (item.name.toLowerCase() === lower) return item
+      if (item.name.toLowerCase().replace(/[\s_-]+/g, "") === strict) return item
+      if (item.id.toLowerCase().replace(/[\s_-]+/g, "") === strict) return item
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Determines whether a given nav item ID or display name represents the role's default dashboard.
+ */
+export function isDefaultDashboard(
+  role: RoleConfig | RoleKey | string,
+  navItemIdOrName?: string | null,
+): boolean {
+  if (!navItemIdOrName) return true
+  const config =
+    typeof role === "object" && "navigationMenu" in role
+      ? role
+      : getRoleConfig(role)
+  const defaultItem = getDefaultNavItem(config)
+  if (!defaultItem) return false
+
+  const lower = navItemIdOrName.toLowerCase().trim()
+  if (lower === "dashboard" || lower === "home") {
+    return true
+  }
+
+  const matched = findNavItem(config, navItemIdOrName)
+  if (matched) {
+    return matched.id === defaultItem.id
+  }
+
+  if (
+    config.dashboardTitle &&
+    lower === config.dashboardTitle.toLowerCase()
+  ) {
+    return true
+  }
+
+  return (
+    navItemIdOrName === defaultItem.id ||
+    navItemIdOrName === defaultItem.name ||
+    lower === defaultItem.id.toLowerCase() ||
+    lower === defaultItem.name.toLowerCase()
+  )
+}
+
+/**
+ * Generates a unique role-scoped page key combining the role key and navigation item ID.
+ * e.g., 'family:investments' vs 'individual:investments'
+ */
+export function getPageKey(roleKey: RoleKey, navItemId: string): PageKey {
+  return `${roleKey}:${navItemId}`
+}
+

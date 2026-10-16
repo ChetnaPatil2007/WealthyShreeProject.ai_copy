@@ -7,6 +7,10 @@ import {
   getRoleConfig,
   authorizeAction,
   hasPermission,
+  getDefaultNavItem,
+  findNavItem,
+  isDefaultDashboard,
+  getPageKey,
 } from "../src/config/roles"
 import { getTableConfigForRole } from "../src/config/roleTableData"
 import { getNotificationsForRole } from "../src/config/notifications"
@@ -120,6 +124,60 @@ async function runVerificationSuite() {
     assert.equal(getRoleConfig(undefined).key, "individual")
     assert.equal(getRoleConfig("").key, "individual")
     assert.equal(getRoleConfig("unknown_hacker_role_xyz").key, "individual")
+  })
+
+  test("getDefaultNavItem retrieves the first navigation item for all 16 roles", () => {
+    for (const key of ROLE_KEYS) {
+      const defaultItem = getDefaultNavItem(key)
+      assert.ok(defaultItem, `Default item missing for ${key}`)
+      assert.ok(defaultItem.id, `Default item for ${key} has no id`)
+      assert.ok(defaultItem.name, `Default item for ${key} has no name`)
+      assert.ok(defaultItem.icon, `Default item for ${key} has no icon`)
+
+      const config = ROLE_CONFIGURATIONS[key]
+      assert.equal(defaultItem.id, config.navigationMenu[0].items[0].id)
+    }
+  })
+
+  test("isDefaultDashboard correctly detects home dashboard across roles", () => {
+    assert.equal(isDefaultDashboard("individual", "dashboard"), true)
+    assert.equal(isDefaultDashboard("individual", "Overview"), true)
+    assert.equal(isDefaultDashboard("individual", "Personal Wealth Dashboard"), true)
+    assert.equal(isDefaultDashboard("individual", "investments"), false)
+    assert.equal(isDefaultDashboard("family", "family_overview"), true)
+    assert.equal(isDefaultDashboard("family", "Family Overview"), true)
+    assert.equal(isDefaultDashboard("family", "investments"), false)
+    assert.equal(isDefaultDashboard("student", "dashboard"), true)
+    assert.equal(isDefaultDashboard("student", "savings_goals"), false)
+  })
+
+  test("findNavItem resolves navigation items by id, name, and alias", () => {
+    const familyInvestments = findNavItem("family", "investments")
+    assert.ok(familyInvestments)
+    assert.equal(familyInvestments?.id, "investments")
+    assert.equal(familyInvestments?.name, "Investments")
+
+    const familyWealthTree = findNavItem("family", "Family Wealth Tree")
+    assert.ok(familyWealthTree)
+    assert.equal(familyWealthTree?.id, "wealth_tree")
+
+    // Student loans alias resolution to savings_goals
+    const studentLoansAliased = findNavItem("student", "Student Loans")
+    assert.ok(studentLoansAliased)
+    assert.equal(studentLoansAliased?.id, "savings_goals")
+
+    // Direct savings goals lookup
+    const studentSavings = findNavItem("student", "savings_goals")
+    assert.ok(studentSavings)
+    assert.equal(studentSavings?.id, "savings_goals")
+  })
+
+  test("getPageKey generates distinct composite keys for role and navigation items", () => {
+    const familyKey = getPageKey("family", "investments")
+    const individualKey = getPageKey("individual", "investments")
+    assert.equal(familyKey, "family:investments")
+    assert.equal(individualKey, "individual:investments")
+    assert.notEqual(familyKey, individualKey, "family:investments and individual:investments must be distinct keys")
   })
 
   // 3. Zero-Trust Security & RBAC Enforcement
@@ -304,6 +362,145 @@ async function runVerificationSuite() {
     assert.equal(exported, true)
   })
 
+  // 6. Comprehensive 16-Role Navigation & Shared Module Disambiguation
+  console.log("\n--- 6. Comprehensive 16-Role Navigation & Module Regression ---")
+  test("Every sidebar item across all 16 roles resolves by ID and name", () => {
+    let totalItemsAudited = 0
+    for (const roleKey of ROLE_KEYS) {
+      const config = ROLE_CONFIGURATIONS[roleKey]
+      const defaultItem = getDefaultNavItem(roleKey)
+
+      for (const section of config.navigationMenu) {
+        for (const item of section.items) {
+          totalItemsAudited++
+          // Must resolve by item.id
+          const byId = findNavItem(roleKey, item.id)
+          assert.ok(byId, `Failed to resolve nav item by id: ${roleKey}:${item.id}`)
+          assert.equal(byId?.id, item.id)
+
+          // Must resolve by item.name
+          const byName = findNavItem(roleKey, item.name)
+          assert.ok(byName, `Failed to resolve nav item by name: ${roleKey}:${item.name}`)
+          assert.equal(byName?.id, item.id)
+
+          // Composite key must be roleKey:item.id
+          const pageKey = getPageKey(roleKey, item.id)
+          assert.equal(pageKey, `${roleKey}:${item.id}`)
+
+          // isDefaultDashboard must be true only for the default dashboard item
+          const isHome = isDefaultDashboard(roleKey, item.id)
+          if (item.id === defaultItem.id) {
+            assert.equal(isHome, true, `Expected ${item.id} to be default dashboard for ${roleKey}`)
+          } else {
+            assert.equal(isHome, false, `Expected ${item.id} NOT to be default dashboard for ${roleKey}`)
+          }
+        }
+      }
+    }
+    assert.ok(totalItemsAudited >= 140, `Expected at least 140 total audited nav items, got ${totalItemsAudited}`)
+  })
+
+  test("Shared module names across roles produce distinct composite page keys", () => {
+    // 1. Clients
+    const clientRoles = ["financial_advisor", "ca", "tax_consultant", "wealth_coach", "private_bank"] as const
+    const clientKeys = new Set(clientRoles.map((r) => getPageKey(r, "clients")))
+    assert.equal(clientKeys.size, clientRoles.length, "All 'clients' pages must have unique keys")
+
+    // 2. Investments
+    const invRoles = ["individual", "family", "investment_manager", "family_office"] as const
+    const invKeys = new Set(invRoles.map((r) => getPageKey(r, "investments")))
+    assert.equal(invKeys.size, invRoles.length, "All 'investments' pages must have unique keys")
+
+    // 3. Reports
+    const repRoles = [
+      "financial_advisor",
+      "ca",
+      "tax_consultant",
+      "insurance_advisor",
+      "wealth_coach",
+      "family_office",
+      "private_bank",
+      "corporate_hr",
+      "university",
+      "government_organizations",
+      "auditors",
+    ] as const
+    const repKeys = new Set(repRoles.map((r) => getPageKey(r, "reports")))
+    assert.equal(repKeys.size, repRoles.length, "All 'reports' pages must have unique keys")
+
+    // 4. Documents
+    const docRoles = [
+      "individual",
+      "family",
+      "financial_advisor",
+      "ca",
+      "tax_consultant",
+      "investment_manager",
+      "insurance_advisor",
+      "family_office",
+      "government_organizations",
+    ] as const
+    const docKeys = new Set(docRoles.map((r) => getPageKey(r, "documents")))
+    assert.equal(docKeys.size, docRoles.length, "All 'documents' pages must have unique keys")
+
+    // 5. Settings
+    const settingsKeys = new Set(ROLE_KEYS.map((r) => getPageKey(r, "settings")))
+    assert.equal(settingsKeys.size, 16, "All 16 roles must have a distinct 'settings' key")
+  })
+
+  test("Dashboard internal navigation targets resolve across all 16 roles", () => {
+    const dashboardNavCalls: Record<string, string[]> = {
+      individual: ["Tax Planner", "My Wealth", "Investments", "Insurance"],
+      family: ["Family Wealth Tree", "Estate Planning", "Family Budget", "Insurance"],
+      student: ["Learn Finance", "My Budget", "Savings Goals"],
+      financial_advisor: ["Risk Profiles"],
+      ca: ["Tax Filings", "Clients", "Reconciliation"],
+      tax_consultant: ["Tax Planning", "Tax Calculations", "Reports", "Filing Calendar"],
+      investment_manager: ["Rebalancing", "Risk Analysis"],
+      insurance_advisor: ["Coverage Analysis", "Policies", "Renewals", "Claims"],
+      wealth_coach: ["Coaching Sessions", "Habit Tracking", "Financial Goals", "Savings Challenges"],
+      family_office: ["Family Members", "Trusts", "Estate Planning"],
+      private_bank: ["Banking Services", "Wealth Portfolios", "Compliance", "Clients"],
+      corporate_hr: ["Workshops", "Wellness Programs", "Communications"],
+      university: ["Courses", "Events", "Certifications"],
+      government_organizations: ["Programs", "Financial Literacy", "Beneficiary Groups", "Regional Analytics"],
+      auditors: ["Evidence Repository", "Review Queue", "Findings"],
+      super_admin: ["AI Configuration"],
+    }
+
+    for (const [role, targets] of Object.entries(dashboardNavCalls)) {
+      for (const target of targets) {
+        const matched = findNavItem(role, target)
+        assert.ok(matched, `Dashboard navigation call to "${target}" failed in role "${role}"`)
+        assert.ok(matched.id, `Matched item for "${target}" in role "${role}" has no ID`)
+      }
+    }
+  })
+
+  test("Zero-Trust: switching to any of the 16 roles preserves default restricted privileges", () => {
+    for (const roleKey of ROLE_KEYS) {
+      const config = ROLE_CONFIGURATIONS[roleKey]
+      const simulatedSession: UserSession = {
+        userId: "usr_active_session",
+        email: "alex.morgan@wealthsphere.ai",
+        activeRoleKey: roleKey,
+        verifiedRoleKeys: ["individual"], // only individual verified by default
+        grantedPermissions: roleKey === "individual" ? config.defaultGrantedPermissions : [],
+        isDemoMode: true,
+      }
+
+      // Check actions with permissions
+      const protectedActions = config.quickActions.filter((a) => a.requiredPermission)
+      for (const action of protectedActions) {
+        const auth = authorizeAction(simulatedSession, action, config)
+        if (roleKey !== "individual" && !simulatedSession.grantedPermissions.includes(action.requiredPermission!)) {
+          assert.equal(auth.allowed, false, `Zero-Trust breach: ${roleKey}:${action.id} allowed without granted permission!`)
+          assert.equal(auth.requiresVerification, true)
+        }
+      }
+    }
+  })
+
   console.log(`\n=================================================================`)
   console.log(`   Verification Summary: ${passedTests} / ${totalTests} Passed`)
   console.log(`=================================================================`)
@@ -314,3 +511,4 @@ async function runVerificationSuite() {
 }
 
 runVerificationSuite()
+

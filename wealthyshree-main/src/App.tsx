@@ -4,10 +4,27 @@ import {
   getRoleConfig,
   authorizeAction,
   hasPermission,
+  getPageKey,
 } from "./config/roles"
-import type { RoleConfig, RoleNavSection, RoleNavItem } from "./types/roles"
+import type { RoleConfig, RoleNavSection, RoleNavItem, PageKey } from "./types/roles"
 import { AppShell } from "./components/layout/AppShell"
 import { useToast } from "./components/ui/Toast"
+import { IndividualModulePage } from "./features/individual/IndividualPages"
+import { FamilyModulePage } from "./features/family/FamilyPages"
+import { StudentModulePage } from "./features/student/StudentPages"
+import { AdvisorModulePage } from "./features/advisor/AdvisorPages"
+import { CAModulePage } from "./features/ca/CAPages"
+import { TaxConsultantModulePage } from "./features/tax/TaxConsultantPages"
+import { InvestmentModulePage } from "./features/investment/InvestmentPages"
+import { InsuranceModulePage } from "./features/insurance/InsurancePages"
+import { WealthCoachModulePage } from "./features/coach/WealthCoachPages"
+import { FamilyOfficeModulePage } from "./features/familyoffice/FamilyOfficePages"
+import { PrivateBankModulePage } from "./features/privatebank/PrivateBankPages"
+import { CorporateHRModulePage } from "./features/corporatehr/CorporateHRPages"
+import { UniversityModulePage } from "./features/university/UniversityPages"
+import { GovernmentModulePage } from "./features/government/GovernmentPages"
+import { AuditorModulePage } from "./features/auditors/AuditorPages"
+import { SuperAdminModulePage } from "./features/admin/SuperAdminPages"
 
 type IconName = "activity" | "ai" | "alert" | "arrow" | "bank" | "book" | "briefcase" | "calendar" | "card" | "check" | "chevron" | "document" | "family" | "globe" | "goal" | "grid" | "home" | "insurance" | "lock" | "menu" | "moon" | "more" | "notification" | "pie" | "plus" | "search" | "settings" | "shield" | "sparkle" | "sun" | "tax" | "trending" | "user" | "wallet"
 
@@ -2192,25 +2209,178 @@ const assetItems = [
   ["Digital assets", "$72,730", "globe"],
 ]
 
-interface ModulePageProps {
-  name: string
-  openAI: () => void
+interface PageMetadata {
+  eyebrow: string
+  title: string
+  subtitle: string
+  stat: string
+  statLabel: string
+  tone: string
+  actions?: Array<[string, string, string]>
+  assets?: Array<[string, string, string]>
 }
 
-function ModulePage({ name, openAI }: ModulePageProps) {
-  const { showToast } = useToast()
-  const info = moduleInfo[name] || {
-    eyebrow: "AI COMMAND CENTER",
-    title: "Your expert agents, orchestrated.",
+const rolePageOverrides: Record<string, PageMetadata> = {
+  "family:investments": {
+    eyebrow: "MULTI-GENERATIONAL PORTFOLIO",
+    title: "Consolidated Family Investment Universe",
     subtitle:
-      "Ten specialized AI agents collaborate while you retain final approval over every consequential action.",
-    stat: "10",
-    statLabel: "Active specialist agents",
+      "Unified performance, mandate compliance, and asset allocation across 5 family members, 3 generational trusts, and holding entities.",
+    stat: "$12.4M",
+    statLabel: "Family investable assets",
+    tone: "navy",
+    actions: [
+      ["Rebalance Trust Allocations", "High impact · Trust mandate", "pie"],
+      ["Review Next-Gen Beneficiary Portfolios", "Multi-member sync", "family"],
+      ["Optimize Family Entity Tax Harvesting", "Estate shield active", "tax"],
+    ],
+    assets: [
+      ["Morgan Revocable Living Trust", "$5,420,000", "bank"],
+      ["Generational Dynastic Trust (G2/G3)", "$3,850,000", "shield"],
+      ["MV Family Capital Holding LLC", "$2,100,000", "briefcase"],
+      ["Alex & Elena Joint Brokerage", "$850,000", "trending"],
+      ["Next-Gen Custodial 529 Portfolios", "$180,000", "book"],
+    ],
+  },
+  "individual:investments": {
+    eyebrow: "PERSONAL INVESTMENT HUB",
+    title: "Personal Wealth & Market Holdings",
+    subtitle:
+      "Direct equity holdings, index mutual funds, high-yield cash reserves, and personal discretionary trading accounts.",
+    stat: "$2.70M",
+    statLabel: "Personal investable assets",
     tone: "emerald",
-  }
-  const isPlans = name === "Subscription Plans"
+    actions: [
+      ["Harvest $18.4K Capital Losses", "High impact · Personal offset", "tax"],
+      ["Dollar-Cost Average Index Tranche", "Automated deposit", "trending"],
+      ["Rebalance Tech Overweight (+3.2%)", "Risk rule alert", "alert"],
+    ],
+    assets: [
+      ["Primary Discretionary Brokerage", "$1,424,600", "trending"],
+      ["Roth & Traditional IRA Portfolios", "$580,000", "shield"],
+      ["Angel Venture & Startup Notes", "$350,000", "briefcase"],
+      ["Direct Treasury & Bond Holdings", "$245,400", "bank"],
+      ["High-Yield Reserves & Cash Buffer", "$100,000", "wallet"],
+    ],
+  },
+  "student:savings_goals": {
+    eyebrow: "CAMPUS SAVINGS MILESTONES",
+    title: "Student Savings & Financial Runway",
+    subtitle:
+      "Track emergency buffers, semester textbook savings, and postgraduate transition reserves.",
+    stat: "$3,450",
+    statLabel: "Total student savings",
+    tone: "emerald",
+    actions: [
+      ["Deposit $25 to Emergency Fund", "Micro-saving habit", "plus"],
+      ["Simulate Student Loan Payoff", "Accelerated payoff model", "trending"],
+      ["Search STEM Scholarships", "3 active grant deadlines", "sparkle"],
+    ],
+    assets: [
+      ["Campus High-Yield Savings", "$1,850", "bank"],
+      ["Emergency Living Cushion", "$1,100", "shield"],
+      ["Textbook & Tech Sinking Fund", "$500", "book"],
+    ],
+  },
+  "student:budget": {
+    eyebrow: "ZERO-BASED STUDENT BUDGET",
+    title: "Campus Cash Flow & Allowance Tracking",
+    subtitle:
+      "Monitor monthly student stipend, work-study earnings, dining, dorm rent, and discretionary entertainment.",
+    stat: "$1,380",
+    statLabel: "Monthly campus budget",
+    tone: "blue",
+    actions: [
+      ["Log Daily Campus Expense", "Quick receipt scan", "document"],
+      ["Review Dining Plan Balance", "18 meal passes remaining", "card"],
+      ["Set Weekend Spending Cap", "Guardrail active", "shield"],
+    ],
+    assets: [
+      ["Campus Checking Account", "$640", "bank"],
+      ["Work-Study Direct Deposit", "$420", "briefcase"],
+      ["Campus Dining Card Balance", "$320", "card"],
+    ],
+  },
+  "family:wealth_tree": {
+    eyebrow: "3D SUCCESSION ARCHITECTURE",
+    title: "Living Family Wealth & Succession Map",
+    subtitle:
+      "Visualize bloodline descendants, revocable trusts, holding entities, and future asset distribution paths.",
+    stat: "24",
+    statLabel: "Connected family entities",
+    tone: "violet",
+  },
+  "ca:client_books": {
+    eyebrow: "STATUTORY ACCOUNTING",
+    title: "Client General Ledgers & Books",
+    subtitle:
+      "Multi-entity double-entry bookkeeping, trial balance reconciliation, and journal entry auditing.",
+    stat: "42",
+    statLabel: "Active corporate ledgers",
+    tone: "navy",
+  },
+  "tax_consultant:tax_planning": {
+    eyebrow: "STRATEGIC TAX ADVISORY",
+    title: "Tax Scenario Modeling & Advisory",
+    subtitle:
+      "Multi-jurisdictional tax structuring, corporate deductions, and high-net-worth tax loss harvesting strategies.",
+    stat: "$840K",
+    statLabel: "Aggregate client tax savings",
+    tone: "emerald",
+  },
+}
+
+interface ModulePageProps {
+  roleKey?: RoleConfig["key"]
+  navId?: string
+  navName?: string
+  name?: string
+  openAI: () => void
+  onNavigate?: (target: string) => void
+}
+
+function ModulePage({
+  roleKey,
+  navId,
+  navName,
+  name,
+  openAI,
+  onNavigate,
+}: ModulePageProps) {
+  const { showToast } = useToast()
+  const roleConfig = roleKey ? getRoleConfig(roleKey) : getRoleConfig("individual")
+  const resolvedRoleKey = roleConfig.key
+  const resolvedNavId = navId || name?.toLowerCase().replace(/\s+/g, "_") || ""
+  const resolvedNavName = navName || name || "Dashboard"
+  const pageKey = getPageKey(resolvedRoleKey, resolvedNavId)
+
+  const override = rolePageOverrides[pageKey]
+  const baseModule = moduleInfo[resolvedNavName]
+
+  const info: PageMetadata =
+    override ||
+    (baseModule
+      ? {
+          ...baseModule,
+          eyebrow: `${roleConfig.displayName.toUpperCase()} · ${baseModule.eyebrow}`,
+        }
+      : {
+          eyebrow: `${roleConfig.displayName.toUpperCase()} WORKSPACE`,
+          title: `${resolvedNavName} Intelligence`,
+          subtitle: `Specialized ${roleConfig.displayName} workspace controls, telemetry, and live analytics for ${resolvedNavName.toLowerCase()}.`,
+          stat: roleConfig.relevantMetrics[0]?.value || "Active",
+          statLabel: `${roleConfig.displayName} Telemetry`,
+          tone: "navy",
+        })
+
+  const isPlans =
+    resolvedNavId === "subscriptions" || resolvedNavName === "Subscription Plans"
   const isAcademy =
-    name === "Learning Academy" ||
+    resolvedNavId === "learning" ||
+    resolvedNavId === "learn" ||
+    resolvedNavId === "courses" ||
+    resolvedNavId === "certifications" ||
+    resolvedNavName === "Learning Academy" ||
     [
       "Courses",
       "Learn Finance",
@@ -2218,8 +2388,39 @@ function ModulePage({ name, openAI }: ModulePageProps) {
       "Assessments",
       "Achievements",
       "Learning Resources",
-    ].includes(name)
-  const isEnterprise = ["Enterprise Console", "Super Admin"].includes(name)
+    ].includes(resolvedNavName)
+  const isWealthTree =
+    resolvedNavId === "wealth_tree" ||
+    resolvedNavName === "Family Wealth Tree"
+  const isEnterprise =
+    ["enterprise_console", "super_admin"].includes(resolvedNavId) ||
+    ["Enterprise Console", "Super Admin", "Super Admin Console"].includes(
+      resolvedNavName,
+    )
+
+  const activeActions = override?.actions || [
+    [
+      "Review concentration risk",
+      `High impact · ${roleConfig.displayName}`,
+      "alert",
+    ],
+    ["Approve agent recommendation", "Human approval required", "check"],
+    ["Complete missing information", "Improves accuracy", "document"],
+  ]
+
+  const activeAssets =
+    override?.assets ||
+    (isEnterprise
+      ? [
+          ["KYC / AML", "99.2%", "shield"],
+          ["FATCA & CRS", "Compliant", "globe"],
+          ["GDPR", "Controls active", "lock"],
+          ["ISO 27001", "Certified", "check"],
+          ["SOC 2 Type II", "Certified", "document"],
+          ["PCI DSS", "Compliant", "card"],
+        ]
+      : assetItems)
+
   return (
     <div className="module-page">
       <section className={`module-hero tone-${info.tone}`}>
@@ -2235,8 +2436,10 @@ function ModulePage({ name, openAI }: ModulePageProps) {
               variant="secondary"
               onClick={() => {
                 showToast({
-                  title: isPlans ? "Plan Comparison" : `${name} Scenario`,
-                  message: `Simulated scenario generated for ${name}. Reviewing risk and allocation parameters.`,
+                  title: isPlans
+                    ? "Plan Comparison"
+                    : `${resolvedNavName} Scenario`,
+                  message: `Simulated scenario generated for ${resolvedNavName} in ${roleConfig.displayName} workspace. Reviewing risk and allocation parameters.`,
                   tone: "info",
                 })
               }}
@@ -2273,9 +2476,9 @@ function ModulePage({ name, openAI }: ModulePageProps) {
                 <span className="card-title">
                   {isEnterprise
                     ? "Operations overview"
-                    : name === "Family Wealth Tree"
+                    : isWealthTree
                       ? "Ownership & succession map"
-                      : "Intelligence overview"}
+                      : `${resolvedNavName} Intelligence`}
                 </span>
                 <span className="card-sub">Live data · Updated just now</span>
               </div>
@@ -2283,7 +2486,7 @@ function ModulePage({ name, openAI }: ModulePageProps) {
                 <Icon name="activity" size={13} /> Live
               </Badge>
             </div>
-            {name === "Family Wealth Tree" ? (
+            {isWealthTree ? (
               <WealthTree />
             ) : (
               <div className="analysis-chart">
@@ -2313,22 +2516,14 @@ function ModulePage({ name, openAI }: ModulePageProps) {
               </div>
               <Badge tone="info">3 NEW</Badge>
             </div>
-            {[
-              ["Review concentration risk", "High impact · 5 min", "alert"],
-              [
-                "Approve agent recommendation",
-                "Human approval required",
-                "check",
-              ],
-              ["Complete missing information", "Improves accuracy", "document"],
-            ].map(([t, s, i]) => (
+            {activeActions.map(([t, s, i]) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => {
                   showToast({
                     title: t,
-                    message: `Executing "${t}" for ${name}. Analyzing portfolio rules.`,
+                    message: `Executing "${t}" for ${resolvedNavName} in ${roleConfig.displayName} workspace. Analyzing policy rules.`,
                     tone: i === "alert" ? "warning" : "success",
                   })
                 }}
@@ -2350,12 +2545,12 @@ function ModulePage({ name, openAI }: ModulePageProps) {
                 <span className="card-title">
                   {isEnterprise
                     ? "Compliance & controls"
-                    : "Connected universe"}
+                    : `${roleConfig.displayName} universe`}
                 </span>
                 <span className="card-sub">
                   {isEnterprise
                     ? "Global regulatory posture"
-                    : "Assets monitored by this workspace"}
+                    : "Assets & accounts monitored by this workspace"}
                 </span>
               </div>
               <Button
@@ -2365,7 +2560,7 @@ function ModulePage({ name, openAI }: ModulePageProps) {
                   showToast({
                     title: isEnterprise
                       ? "Compliance Controls"
-                      : "Connected Universe",
+                      : `${roleConfig.displayName} Universe`,
                     message:
                       "Continuous surveillance and automated reconciliation active.",
                     tone: "info",
@@ -2373,17 +2568,7 @@ function ModulePage({ name, openAI }: ModulePageProps) {
                 }}
               />
             </div>
-            {(isEnterprise
-              ? [
-                  ["KYC / AML", "99.2%", "shield"],
-                  ["FATCA & CRS", "Compliant", "globe"],
-                  ["GDPR", "Controls active", "lock"],
-                  ["ISO 27001", "Certified", "check"],
-                  ["SOC 2 Type II", "Certified", "document"],
-                  ["PCI DSS", "Compliant", "card"],
-                ]
-              : assetItems
-            ).map(([l, v, i]) => (
+            {activeAssets.map(([l, v, i]) => (
               <div
                 className="list-row"
                 key={l}
@@ -2950,9 +3135,177 @@ export default function App() {
         setRole(validated)
       }}
       onNavigateHome={() => setScreen("landing")}
-      renderModulePage={(moduleName, openAI) => (
-        <ModulePage name={moduleName} openAI={openAI} />
-      )}
+      renderModulePage={(roleKey, navId, navName, openAI, onNavigate) => {
+        if (roleKey === "individual") {
+          return (
+            <IndividualModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "family") {
+          return (
+            <FamilyModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "student") {
+          return (
+            <StudentModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "financial_advisor") {
+          return (
+            <AdvisorModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "ca") {
+          return (
+            <CAModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "tax_consultant") {
+          return (
+            <TaxConsultantModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "investment_manager") {
+          return (
+            <InvestmentModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "insurance_advisor") {
+          return (
+            <InsuranceModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "wealth_coach") {
+          return (
+            <WealthCoachModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "family_office") {
+          return (
+            <FamilyOfficeModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "private_bank") {
+          return (
+            <PrivateBankModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "corporate_hr") {
+          return (
+            <CorporateHRModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "university") {
+          return (
+            <UniversityModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "government_organizations") {
+          return (
+            <GovernmentModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "auditors") {
+          return (
+            <AuditorModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        if (roleKey === "super_admin") {
+          return (
+            <SuperAdminModulePage
+              navId={navId}
+              navName={navName}
+              openAI={openAI}
+              onNavigate={onNavigate}
+            />
+          )
+        }
+        return (
+          <ModulePage
+            roleKey={roleKey}
+            navId={navId}
+            navName={navName}
+            openAI={openAI}
+            onNavigate={onNavigate}
+          />
+        )
+      }}
       renderAIPanel={(onClose) => <AIPanel onClose={onClose} />}
     />
   )
