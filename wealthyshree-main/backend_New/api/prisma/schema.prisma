@@ -1,0 +1,300 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────── ENUMS ─────────────
+
+enum OrganizationType {
+  PLATFORM
+  INDIVIDUAL
+  FAMILY_OFFICE
+  PRIVATE_BANK
+  ADVISORY_FIRM
+  AUDIT_FIRM
+  UNIVERSITY
+  CORPORATE
+  GOVERNMENT
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum AccountType {
+  SAVINGS
+  CURRENT
+  CREDIT_CARD
+  DEMAT
+  WALLET
+  OTHER
+}
+
+enum AssetType {
+  STOCK
+  MUTUAL_FUND
+  BOND
+  FIXED_DEPOSIT
+  GOLD
+  REAL_ESTATE
+  VEHICLE
+  CRYPTO
+  RETIREMENT
+  OTHER
+}
+
+enum LiabilityType {
+  HOME_LOAN
+  PERSONAL_LOAN
+  EDUCATION_LOAN
+  VEHICLE_LOAN
+  CREDIT_CARD
+  OTHER
+}
+
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+  PAUSED
+  CANCELLED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+// ───────────── ACCESS ─────────────
+
+model Organization {
+  id        String           @id @default(uuid()) @db.Uuid
+  name      String
+  type      OrganizationType
+  country   String           @default("IN") @db.VarChar(2)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  deletedAt DateTime?
+
+  memberships  Membership[]
+  accounts     Account[]
+  assets       Asset[]
+  liabilities  Liability[]
+  goals        Goal[]
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id        String     @id @default(uuid()) @db.Uuid
+  email     String     @unique
+  name      String
+  auth0Id   String?    @unique // reserved for the Auth0 integration
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  deletedAt DateTime?
+
+  memberships  Membership[]
+  accounts     Account[]
+  assets       Asset[]
+  liabilities  Liability[]
+  goals        Goal[]
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique // e.g. "student", "private_bank"
+  name        String
+  category    String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  permissions RolePermission[]
+  memberships Membership[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid()) @db.Uuid
+  key         String @unique // e.g. "read:own_assets"
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Membership {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  organizationId String   @db.Uuid
+  roleId         String   @db.Uuid
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, organizationId, roleId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+// ───────────── FINANCE ─────────────
+
+model Account {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @db.Uuid
+  userId         String      @db.Uuid
+  type           AccountType
+  name           String
+  institution    String?
+  balance        Decimal     @default(0) @db.Decimal(18, 2)
+  currency       String      @default("INR") @db.VarChar(3)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@index([organizationId, userId])
+  @@map("accounts")
+}
+
+model Asset {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  userId         String    @db.Uuid
+  type           AssetType
+  name           String
+  value          Decimal   @db.Decimal(18, 2)
+  purchaseValue  Decimal?  @db.Decimal(18, 2)
+  purchaseDate   DateTime? @db.Date
+  currency       String    @default("INR") @db.VarChar(3)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, userId])
+  @@map("assets")
+}
+
+model Liability {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  userId         String        @db.Uuid
+  type           LiabilityType
+  name           String
+  lender         String?
+  principal      Decimal?      @db.Decimal(18, 2)
+  outstanding    Decimal       @db.Decimal(18, 2)
+  interestRate   Decimal?      @db.Decimal(5, 2)
+  emi            Decimal?      @db.Decimal(18, 2)
+  endDate        DateTime?     @db.Date
+  currency       String        @default("INR") @db.VarChar(3)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, userId])
+  @@map("liabilities")
+}
+
+model Goal {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @db.Uuid
+  userId         String     @db.Uuid
+  name           String
+  targetAmount   Decimal    @db.Decimal(18, 2)
+  savedAmount    Decimal    @default(0) @db.Decimal(18, 2)
+  targetDate     DateTime?  @db.Date
+  status         GoalStatus @default(ACTIVE)
+  currency       String     @default("INR") @db.VarChar(3)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, userId])
+  @@map("goals")
+}
+
+model Transaction {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  userId         String          @db.Uuid
+  accountId      String?         @db.Uuid
+  type           TransactionType
+  amount         Decimal         @db.Decimal(18, 2)
+  category       String?
+  description    String?
+  date           DateTime        @db.Date
+  currency       String          @default("INR") @db.VarChar(3)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  account      Account?     @relation(fields: [accountId], references: [id])
+
+  @@index([organizationId, userId, date])
+  @@map("transactions")
+}
+
+// ───────────── GOVERNANCE ─────────────
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String?  @db.Uuid
+  userId         String?  @db.Uuid
+  action         String   // CREATE, UPDATE, DELETE, LOGIN...
+  entity         String   // "Asset", "Goal"...
+  entityId       String?
+  metadata       Json?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}
