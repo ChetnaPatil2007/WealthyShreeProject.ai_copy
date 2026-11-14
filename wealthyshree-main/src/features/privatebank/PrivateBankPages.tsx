@@ -5,11 +5,14 @@ import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal, OnboardClientModal } from "../../components/modals"
 import type { MockClient } from "../../services/mockData"
+import type { UserSession } from "../../types/roles"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
 
 export interface PrivateBankPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -66,11 +69,36 @@ export function PrivateBankModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: PrivateBankPageProps) {
   const { showToast } = useToast()
   const [showExportModal, setShowExportModal] = useState(false)
   const [showOnboardModal, setShowOnboardModal] = useState(false)
+  const wireApprovalRequiredMessage =
+    "Wire approval requires verified permissions."
+  const actionPermissionRequiredMessage =
+    "This action requires verified permissions."
+  const canManagePrivateBankBook = () =>
+    userSession.activeRoleKey === "private_bank" &&
+    authorizePermission(
+      userSession,
+      "manage:private_bank_book",
+      getRoleConfig("private_bank"),
+    ).allowed
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: actionPermissionRequiredMessage,
+      tone: "warning",
+    })
+  const canApproveWire = () =>
+    userSession.activeRoleKey === "private_bank" &&
+    authorizePermission(
+      userSession,
+      "execute:wire_transfers",
+      getRoleConfig("private_bank"),
+    ).allowed
 
   // 1. Clients State
   const [clients, setClients] = useState<PrivateBankClientItem[]>([
@@ -285,6 +313,15 @@ export function PrivateBankModulePage({
 
   // Request actions
   const handleApproveRequest = (reqId: string) => {
+    if (!canApproveWire()) {
+      showToast({
+        title: "Action blocked",
+        message: wireApprovalRequiredMessage,
+        tone: "warning",
+      })
+      return
+    }
+
     setClientRequests((prev) =>
       prev.map((r) =>
         r.id === reqId ? { ...r, status: "Disbursed / Settled" } : r,
@@ -343,7 +380,19 @@ export function PrivateBankModulePage({
           <button
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
-            onClick={() => setShowOnboardModal(true)}
+            disabled={!canManagePrivateBankBook()}
+            title={
+              !canManagePrivateBankBook()
+                ? actionPermissionRequiredMessage
+                : undefined
+            }
+            onClick={() => {
+              if (!canManagePrivateBankBook()) {
+                notifyUnauthorized()
+                return
+              }
+              setShowOnboardModal(true)
+            }}
           >
             <Icon name="plus" size={15} />
             Onboard UHNW Client
@@ -777,13 +826,26 @@ export function PrivateBankModulePage({
                         {row.status}
                       </span>
                       {row.status !== "Disbursed / Settled" && (
-                        <button
-                          className="btn btn-primary"
-                          style={{ fontSize: "11px", padding: "4px 8px" }}
-                          onClick={() => handleApproveRequest(row.id)}
-                        >
-                          Approve Wire (Simulated)
-                        </button>
+                        <>
+                          <button
+                            className="btn btn-primary"
+                            style={{ fontSize: "11px", padding: "4px 8px" }}
+                            disabled={!canApproveWire()}
+                            title={
+                              !canApproveWire()
+                                ? wireApprovalRequiredMessage
+                                : undefined
+                            }
+                            onClick={() => handleApproveRequest(row.id)}
+                          >
+                            Approve Wire (Simulated)
+                          </button>
+                          {!canApproveWire() && (
+                            <span role="note" style={{ fontSize: "11px" }}>
+                              {wireApprovalRequiredMessage}
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                   ),
@@ -1405,6 +1467,7 @@ export function PrivateBankModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:private_bank_book"
         onClose={() => setShowExportModal(false)}
         title="Export Private Bank Client Book"
         defaultFilename="Private_Bank_Client_Book"
@@ -1433,6 +1496,8 @@ export function PrivateBankModulePage({
       {/* Onboard Client Modal */}
       <OnboardClientModal
         isOpen={showOnboardModal}
+        isAuthorized={canManagePrivateBankBook()}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowOnboardModal(false)}
         onClientCreated={(newClient: MockClient) => {
           const pbClient: PrivateBankClientItem = {

@@ -1,5 +1,6 @@
 import { useState } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -14,16 +15,43 @@ import type { MockAsset, MockGoal } from "../../services/mockData"
 
 export interface IndividualDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function IndividualDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: IndividualDashboardProps) {
   const { showToast } = useToast()
+  const assetAuthorization = authorizePermission(
+    userSession,
+    "write:own_assets",
+    roleConfig,
+  )
+  const runAuthorizedAction = (
+    permission: Permission,
+    action: () => void,
+  ) => {
+    if (
+      !authorizePermission(userSession, permission, roleConfig).allowed
+    ) {
+      showToast({
+        title: "Access Restricted",
+        message: "This action requires verified permissions.",
+        tone: "warning",
+      })
+      return false
+    }
+
+    action()
+    return true
+  }
   const [chartPeriod, setChartPeriod] = useState("1Y")
   const [showAddAssetModal, setShowAddAssetModal] = useState(false)
   const [showCreateGoalModal, setShowCreateGoalModal] = useState(false)
@@ -157,13 +185,13 @@ export function IndividualDashboard({
             <span className="header-eyebrow">MONDAY, 12 MAY</span>
             <span className="header-separator">•</span>
             <span className="header-status-pill">
-              <span className="live-indicator-dot" /> Live Financial Sphere
+              <span className="live-indicator-dot" /> Demo Financial Sphere
             </span>
             <span className="header-role-pill">
               <Icon name="user" size={13} /> Individual Private Wealth
             </span>
           </div>
-          <h1 className="header-greeting">Good morning, Alex.</h1>
+          <h1 className="header-greeting">Good morning, {userName}.</h1>
           <p className="header-subtitle">
             Your net worth grew <b>+$28,450</b> this month. Savings rate is
             tracking at <b>56.8%</b> of income.
@@ -174,13 +202,28 @@ export function IndividualDashboard({
           <button
             type="button"
             className="button button--primary header-primary-btn"
-            onClick={() => setShowAddAssetModal(true)}
+            onClick={() =>
+              runAuthorizedAction("write:own_assets", () =>
+                setShowAddAssetModal(true),
+              )
+            }
+            disabled={!assetAuthorization.allowed}
+            title={
+              !assetAuthorization.allowed
+                ? "This action requires verified permissions."
+                : undefined
+            }
           >
             <Icon name="plus" size={16} />
             <span>Add Asset</span>
           </button>
         </div>
       </section>
+      {!assetAuthorization.allowed && (
+        <p className="action-restriction-notice" role="note">
+          This action requires verified permissions.
+        </p>
+      )}
 
       {/* 2. Core Metrics Grid */}
       <section className="metric-grid" aria-label="Individual Financial KPIs">
@@ -246,8 +289,12 @@ export function IndividualDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(action) => {
-          if (action.id === "add_asset") setShowAddAssetModal(true)
+          if (action.id === "add_asset")
+            runAuthorizedAction("write:own_assets", () =>
+              setShowAddAssetModal(true),
+            )
           else if (action.id === "run_tax_check") {
             showToast({
               title: "Tax Optimization Scan",
@@ -256,7 +303,10 @@ export function IndividualDashboard({
               tone: "info",
             })
             onNavigate("Tax Planner")
-          } else if (action.id === "rebalance") setShowRebalanceModal(true)
+          } else if (action.id === "rebalance")
+            runAuthorizedAction("write:own_assets", () =>
+              setShowRebalanceModal(true),
+            )
           else if (action.id === "ask_ai") onOpenAI()
           else onNavigate("My Wealth")
         }}
@@ -493,7 +543,17 @@ export function IndividualDashboard({
           <button
             type="button"
             className="button button--secondary button--sm"
-            onClick={() => setShowCreateGoalModal(true)}
+            onClick={() =>
+              runAuthorizedAction("write:own_assets", () =>
+                setShowCreateGoalModal(true),
+              )
+            }
+            disabled={!assetAuthorization.allowed}
+            title={
+              !assetAuthorization.allowed
+                ? "This action requires verified permissions."
+                : undefined
+            }
           >
             <Icon name="plus" size={14} />
             <span>Create Goal</span>
@@ -551,8 +611,15 @@ export function IndividualDashboard({
 
       <AddAssetModal
         isOpen={showAddAssetModal}
+        isAuthorized={assetAuthorization.allowed}
+        onUnauthorized={() =>
+          runAuthorizedAction("write:own_assets", () => {})
+        }
         onClose={() => setShowAddAssetModal(false)}
         onAssetAdded={(asset: MockAsset) => {
+          if (
+            !runAuthorizedAction("write:own_assets", () => {})
+          ) return
           showToast({
             title: "Asset Recorded",
             message: `${asset.name} valued at $${asset.valuation.toLocaleString()} linked successfully to your portfolio.`,
@@ -563,8 +630,15 @@ export function IndividualDashboard({
 
       <CreateGoalModal
         isOpen={showCreateGoalModal}
+        isAuthorized={assetAuthorization.allowed}
+        onUnauthorized={() =>
+          runAuthorizedAction("write:own_assets", () => {})
+        }
         onClose={() => setShowCreateGoalModal(false)}
         onGoalAdded={(newGoal: MockGoal) => {
+          if (
+            !runAuthorizedAction("write:own_assets", () => {})
+          ) return
           setGoalsList((prev) => [
             {
               id: newGoal.id,
@@ -593,8 +667,15 @@ export function IndividualDashboard({
 
       <RebalanceModal
         isOpen={showRebalanceModal}
+        isAuthorized={assetAuthorization.allowed}
+        onUnauthorized={() =>
+          runAuthorizedAction("write:own_assets", () => {})
+        }
         onClose={() => setShowRebalanceModal(false)}
         onRebalanceComplete={() => {
+          if (
+            !runAuthorizedAction("write:own_assets", () => {})
+          ) return
           showToast({
             title: "Allocation Rebalanced",
             message:
@@ -606,6 +687,7 @@ export function IndividualDashboard({
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:own_assets"
         onClose={() => setShowExportModal(false)}
         title="Export Transaction Ledger"
         defaultFilename="individual_transactions.csv"

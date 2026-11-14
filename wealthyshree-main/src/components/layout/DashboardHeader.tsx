@@ -3,12 +3,14 @@ import { Icon } from "../ui/Icon"
 
 export interface DashboardHeaderProps {
   roleConfig: RoleConfig
+  userName?: string
   onPrimaryAction?: () => void
   activeQuickAction?: RoleQuickAction
 }
 
 export function DashboardHeader({
   roleConfig,
+  userName,
   onPrimaryAction,
   activeQuickAction,
 }: DashboardHeaderProps) {
@@ -24,7 +26,7 @@ export function DashboardHeader({
           <span className="header-eyebrow">MONDAY, 12 MAY</span>
           <span className="header-separator">•</span>
           <span className="header-status-pill">
-            <span className="live-indicator-dot" /> Live Financial Sphere
+            <span className="live-indicator-dot" /> Demo Financial Sphere
           </span>
           <span className="header-role-pill">
             <Icon name={roleConfig.icon} size={13} /> {roleConfig.displayName}
@@ -32,7 +34,7 @@ export function DashboardHeader({
         </div>
 
         <h1 className="header-greeting">
-          Good morning, {roleConfig.persona.name}.
+          Good morning, {userName || "Authenticated user"}.
         </h1>
 
         <p className="header-subtitle">{roleConfig.subtitle}</p>

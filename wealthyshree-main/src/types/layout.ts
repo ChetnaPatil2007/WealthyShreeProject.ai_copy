@@ -1,4 +1,4 @@
-import type { IconName } from "./roles"
+import type { IconName, Permission, RoleKey } from "./roles"
 
 export interface NotificationItem {
   id: string
@@ -30,6 +30,10 @@ export interface TableProps<T> {
     label: string
     icon?: IconName
     onClick: () => void
+    requiredPermission?: Permission
+    requiredActiveRole?: RoleKey
+    disabled?: boolean
+    disabledMessage?: string
   }
   searchable?: boolean
   searchPlaceholder?: string

@@ -6,6 +6,8 @@ import type { MockMeeting } from "../../services/mockData"
 
 export interface ScheduleMeetingModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  onUnauthorized?: () => void
   onClose: () => void
   initialClient?: string
   onMeetingScheduled?: (meeting: MockMeeting) => void
@@ -13,6 +15,8 @@ export interface ScheduleMeetingModalProps {
 
 export function ScheduleMeetingModal({
   isOpen,
+  isAuthorized = false,
+  onUnauthorized,
   onClose,
   initialClient = "",
   onMeetingScheduled,
@@ -42,6 +46,10 @@ export function ScheduleMeetingModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAuthorized) {
+      onUnauthorized?.()
+      return
+    }
     if (!validate()) return
 
     setIsSubmitting(true)
@@ -96,6 +104,11 @@ export function ScheduleMeetingModal({
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
+          {!isAuthorized && (
+            <p className="action-restriction-notice" role="alert">
+              This action requires verified permissions.
+            </p>
+          )}
           <div className="form-group">
             <label htmlFor="meeting-client" className="form-label">
               Client / Household Name <span className="req">*</span>
@@ -110,7 +123,7 @@ export function ScheduleMeetingModal({
                 setClient(e.target.value)
                 if (errors.client) setErrors({ ...errors, client: "" })
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             />
             {errors.client && (
               <span className="form-error">{errors.client}</span>
@@ -126,7 +139,7 @@ export function ScheduleMeetingModal({
               className="form-select"
               value={type}
               onChange={(e) => setType(e.target.value)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               <option value="Annual Fiduciary Review & Portfolio Rebalance">
                 Annual Fiduciary Review & Portfolio Rebalance
@@ -161,7 +174,7 @@ export function ScheduleMeetingModal({
                   setDate(e.target.value)
                   if (errors.date) setErrors({ ...errors, date: "" })
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               {errors.date && <span className="form-error">{errors.date}</span>}
             </div>
@@ -180,7 +193,7 @@ export function ScheduleMeetingModal({
                   setTime(e.target.value)
                   if (errors.time) setErrors({ ...errors, time: "" })
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               {errors.time && <span className="form-error">{errors.time}</span>}
             </div>
@@ -195,7 +208,7 @@ export function ScheduleMeetingModal({
               className="form-select"
               value={mode}
               onChange={(e) => setMode(e.target.value as MockMeeting["mode"])}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               <option value="Virtual Video Call">
                 Virtual Video Call (Zoom / Teams)
@@ -218,7 +231,7 @@ export function ScheduleMeetingModal({
               placeholder="e.g. Review updated estate trust, harvest year-to-date capital losses, and test cash reserve buffer."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             />
           </div>
 
@@ -234,7 +247,7 @@ export function ScheduleMeetingModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               {isSubmitting ? (
                 <>

@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react"
 import type { TableProps } from "../../types/layout"
 import { Icon } from "./Icon"
+import { useExportAuthorization } from "../../config/ExportAuthorizationContext"
+import { useToast } from "./Toast"
 
 export function DataTable<T extends Record<string, any>>({
   title,
@@ -13,6 +15,31 @@ export function DataTable<T extends Record<string, any>>({
   searchPlaceholder = "Search records…",
 }: TableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("")
+  const { showToast } = useToast()
+  const actionPermission = actionButton?.requiredPermission
+  const authorization = useExportAuthorization(
+    actionPermission,
+    actionButton?.requiredActiveRole,
+  )
+
+  const handleActionClick = () => {
+    if (actionPermission && !authorization.allowed) {
+      showToast({
+        title: "Access Restricted",
+        message:
+          actionButton?.disabledMessage ||
+          authorization.reason ||
+          "Exporting this data requires verified permissions.",
+        tone: "warning",
+      })
+      return
+    }
+    if (actionButton?.disabled) {
+      actionButton.onClick()
+      return
+    }
+    actionButton?.onClick()
+  }
 
   const filteredData = useMemo(() => {
     if (!searchTerm.trim()) return data
@@ -62,7 +89,20 @@ export function DataTable<T extends Record<string, any>>({
             <button
               type="button"
               className="button button--secondary button--sm"
-              onClick={actionButton.onClick}
+              onClick={handleActionClick}
+              disabled={
+                Boolean(actionPermission && !authorization.allowed) ||
+                Boolean(actionButton.disabled)
+              }
+              title={
+                actionPermission && !authorization.allowed
+                  ? actionButton.disabledMessage ||
+                    authorization.reason ||
+                    "Exporting this data requires verified permissions."
+                  : actionButton.disabled
+                    ? actionButton.disabledMessage
+                  : undefined
+              }
             >
               {actionButton.icon && <Icon name={actionButton.icon} size={14} />}
               <span>{actionButton.label}</span>

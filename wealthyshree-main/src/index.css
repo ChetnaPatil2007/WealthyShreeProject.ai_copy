@@ -421,6 +421,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(14, 103, 77,
 .topbar-left { display: flex; align-items: center; gap: 12px; }
 .breadcrumb-separator { color: var(--muted); opacity: 0.6; }
 .breadcrumb-role-pill { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--surface-3); color: var(--primary); font-weight: 600; }
+.demo-data-notice { margin: 0 0 12px; color: var(--muted); font-size: 9px; font-weight: 600; }
 .notification-bell-btn { position: relative; }
 .notification-badge-dot { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #e04b4b; color: #fff; font-size: 9px; font-weight: 700; display: grid; place-items: center; line-height: 1; border: 2px solid var(--surface); }
 
@@ -504,6 +505,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(14, 103, 77,
 .quick-actions-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .quick-action-card { position: relative; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); text-align: left; cursor: pointer; transition: 0.2s ease; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow-sm); overflow: hidden; }
 .quick-action-card:hover { transform: translateY(-2px); border-color: var(--primary); box-shadow: 0 10px 25px rgba(23, 43, 36, 0.09); }
+.quick-action-card:disabled { cursor: not-allowed; opacity: 0.62; transform: none; box-shadow: var(--shadow-sm); }
+.action-restriction-notice { margin: -4px 0 10px; color: var(--muted); font-size: 10px; }
 .quick-action-card.primary-action { border-color: color-mix(in srgb, var(--primary) 40%, var(--line)); background: linear-gradient(135deg, var(--surface), var(--primary-soft)); }
 .quick-action-top { display: flex; justify-content: space-between; align-items: center; }
 .action-icon-pill { width: 34px; height: 34px; border-radius: 9px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; }

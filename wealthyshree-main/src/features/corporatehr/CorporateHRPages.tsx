@@ -4,11 +4,14 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals"
+import { authorizePermission, ROLE_CONFIGURATIONS } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface CorporateHRPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -62,9 +65,33 @@ export function CorporateHRModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: CorporateHRPageProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "corporate_hr" &&
+    authorizePermission(
+      userSession,
+      permission,
+      ROLE_CONFIGURATIONS.corporate_hr,
+    ).allowed
+  const canManageWorkforce = hasPermission("manage:workforce_wellness")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [showExportModal, setShowExportModal] = useState(false)
 
   // 1. Employees Roster State (Privacy-Preserved)
@@ -257,28 +284,35 @@ export function CorporateHRModulePage({
 
   const handleSendBroadcast = (e: React.FormEvent) => {
     e.preventDefault()
-    showToast({
-      title: "Enterprise Broadcast Dispatched",
-      message: `Notification sent to ${broadcastAudience}. Open tracking initialized.`,
-      tone: "success",
-    })
+    runAuthorized("manage:workforce_wellness", () =>
+      showToast({
+        title: "Enterprise Broadcast Dispatched",
+        message: `Notification sent to ${broadcastAudience}. Open tracking initialized.`,
+        tone: "success",
+      }),
+    )
   }
 
   const handleRegisterWorkshop = (wsId: string) => {
-    setWorkshops((prev) =>
-      prev.map((w) =>
-        w.id === wsId
-          ? {
-              ...w,
-              attendeesRegistered: Math.min(w.capacity, w.attendeesRegistered + 1),
-            }
-          : w,
-      ),
-    )
-    showToast({
-      title: "Workshop Reservation Confirmed",
-      message: "Calendar invite and prep materials sent to attendee inbox.",
-      tone: "success",
+    runAuthorized("manage:workforce_wellness", () => {
+      setWorkshops((prev) =>
+        prev.map((w) =>
+          w.id === wsId
+            ? {
+                ...w,
+                attendeesRegistered: Math.min(
+                  w.capacity,
+                  w.attendeesRegistered + 1,
+                ),
+              }
+            : w,
+        ),
+      )
+      showToast({
+        title: "Workshop Reservation Confirmed",
+        message: "Calendar invite and prep materials sent to attendee inbox.",
+        tone: "success",
+      })
     })
   }
 
@@ -870,6 +904,12 @@ export function CorporateHRModulePage({
                       <button
                         className="btn btn-outline"
                         style={{ fontSize: "11px", padding: "4px 8px" }}
+                        disabled={!canManageWorkforce}
+                        title={
+                          !canManageWorkforce
+                            ? permissionRequiredText
+                            : undefined
+                        }
                         onClick={() => handleRegisterWorkshop(row.id)}
                       >
                         Register Group
@@ -879,6 +919,11 @@ export function CorporateHRModulePage({
                 },
               ]}
             />
+            {!canManageWorkforce && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1006,6 +1051,7 @@ export function CorporateHRModulePage({
                   className="select"
                   value={broadcastAudience}
                   onChange={(e) => setBroadcastAudience(e.target.value)}
+                  disabled={!canManageWorkforce}
                   style={{ width: "100%" }}
                 >
                   <option value="All Active Employees (4,850)">All Active Employees (4,850)</option>
@@ -1024,6 +1070,7 @@ export function CorporateHRModulePage({
                   className="input"
                   value={broadcastSubject}
                   onChange={(e) => setBroadcastSubject(e.target.value)}
+                  disabled={!canManageWorkforce}
                   style={{ width: "100%" }}
                 />
               </div>
@@ -1036,6 +1083,7 @@ export function CorporateHRModulePage({
                   className="input"
                   rows={4}
                   defaultValue="Hello team, as a reminder, our annual financial wellness open enrollment period closes next Friday. Please review your 401(k) company match settings to ensure you are capturing the full 100% employer contribution match."
+                  disabled={!canManageWorkforce}
                   style={{ width: "100%", resize: "vertical" }}
                 />
               </div>
@@ -1043,12 +1091,18 @@ export function CorporateHRModulePage({
               <button
                 type="submit"
                 className="btn btn-primary"
+                disabled={!canManageWorkforce}
                 style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: "6px" }}
               >
                 <Icon name="notification" size={15} />
                 Deploy Broadcast to Workforce (Simulated)
               </button>
             </form>
+            {!canManageWorkforce && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1154,7 +1208,12 @@ export function CorporateHRModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Employer Matching Formula
                   </label>
-                  <select className="select" defaultValue="100_4_50_2" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="100_4_50_2"
+                    style={{ width: "100%" }}
+                    disabled={!canManageWorkforce}
+                  >
                     <option value="100_4_50_2">100% on first 4%, 50% on next 2% (Current Safe Harbor)</option>
                     <option value="100_6">100% on first 6% Dollar-for-Dollar</option>
                     <option value="50_6">50% on first 6% Standard Match</option>
@@ -1165,7 +1224,12 @@ export function CorporateHRModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Default Auto-Enrollment Rate
                   </label>
-                  <select className="select" defaultValue="6" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="6"
+                    style={{ width: "100%" }}
+                    disabled={!canManageWorkforce}
+                  >
                     <option value="4">4% Base Auto-Enrollment</option>
                     <option value="6">6% Recommended Auto-Enrollment (Current)</option>
                     <option value="8">8% Accelerated Savings Track</option>
@@ -1176,15 +1240,27 @@ export function CorporateHRModulePage({
                   className="btn btn-outline"
                   style={{ marginTop: "8px", fontSize: "12px" }}
                   onClick={() => {
-                    showToast({
-                      title: "Settings Saved",
-                      message: "Corporate 401(k) match rules and auto-enrollment rates updated.",
-                      tone: "success",
-                    })
+                    runAuthorized("manage:workforce_wellness", () =>
+                      showToast({
+                        title: "Settings Saved",
+                        message:
+                          "Corporate 401(k) match rules and auto-enrollment rates updated.",
+                        tone: "success",
+                      }),
+                    )
                   }}
+                  disabled={!canManageWorkforce}
+                  title={
+                    !canManageWorkforce ? permissionRequiredText : undefined
+                  }
                 >
                   Save Benefits Rules
                 </button>
+                {!canManageWorkforce && (
+                  <p className="action-restriction-notice" role="note">
+                    {permissionRequiredText}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1229,6 +1305,7 @@ export function CorporateHRModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:workforce_wellness"
         onClose={() => setShowExportModal(false)}
         title="Export Workforce Financial Wellness Report"
         defaultFilename="Corporate_HR_Workforce_Wellness_Report"

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import {
   ROLE_KEYS,
   ROLE_CONFIGURATIONS,
@@ -6,6 +8,7 @@ import {
   getAllRoleConfigs,
   getRoleConfig,
   authorizeAction,
+  authorizePermission,
   hasPermission,
   getDefaultNavItem,
   findNavItem,
@@ -14,8 +17,10 @@ import {
 } from "../src/config/roles"
 import { getTableConfigForRole } from "../src/config/roleTableData"
 import { getNotificationsForRole } from "../src/config/notifications"
+import { createExportAuthorizationChecker } from "../src/config/exportAuthorization"
 import { apiService } from "../src/services/apiService"
-import type { UserSession, RoleKey } from "../src/types/roles"
+import type { Permission, UserSession, RoleKey } from "../src/types/roles"
+import type { ExportAuthorizationContextValue } from "../src/config/exportAuthorization"
 
 const EXPECTED_ROLES: RoleKey[] = [
   "individual",
@@ -200,6 +205,1391 @@ async function runVerificationSuite() {
     assert.equal(auth.allowed, false, "Unauthorized action must be denied in zero-trust mode")
     assert.ok(auth.requiresVerification, "Action should indicate verification required")
     assert.ok(auth.reason?.length, "Auth denial must supply human-readable rationale")
+  })
+
+  test("Default grants stay read-only and are not copied into frontend sessions", () => {
+    const readOnlyDefaults = new Set<Permission>([
+      "read:own_profile",
+      "read:own_assets",
+      "read:family_group",
+      "read:student_budget",
+      "read:client_roster",
+      "read_only:audit_trail",
+      "read:tax_scenarios",
+      "read:insurance_policies",
+      "read:family_office_entities",
+      "read:workforce_wellness",
+      "read:endowment_portfolio",
+      "view:sovereign_aggregates",
+    ])
+
+    for (const role of Object.values(ROLE_CONFIGURATIONS)) {
+      for (const permission of role.defaultGrantedPermissions) {
+        assert.ok(
+          readOnlyDefaults.has(permission),
+          `${role.key} has a non-read-only default grant: ${permission}`,
+        )
+      }
+    }
+
+    const riskyDefaultGrants = [
+      ["investment_manager", "propose:trades"],
+      ["wealth_coach", "manage:coaching_cohorts"],
+      ["private_bank", "manage:private_bank_book"],
+    ] as const
+    for (const [roleKey, permission] of riskyDefaultGrants) {
+      const role = ROLE_CONFIGURATIONS[roleKey]
+      assert.ok(role.intendedPermissions.includes(permission))
+      assert.ok(
+        !role.defaultGrantedPermissions.includes(permission),
+        `${roleKey} must not default-grant ${permission}`,
+      )
+    }
+
+    const appShellSource = readFileSync(
+      join(
+        process.cwd(),
+        "src",
+        "components",
+        "layout",
+        "AppShell.tsx",
+      ),
+      "utf8",
+    )
+    assert.match(appShellSource, /grantedPermissions:\s*\[\]/)
+    assert.doesNotMatch(appShellSource, /defaultGrantedPermissions/)
+  })
+
+  test("Protected actions require a verified active role and explicit permission", () => {
+    const rootAction = ROLE_CONFIGURATIONS.super_admin.quickActions.find(
+      (action) => action.requiredPermission === "manage:tenants",
+    )
+    assert.ok(rootAction)
+
+    const unverifiedSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "super_admin",
+      verifiedRoleKeys: [],
+      grantedPermissions: ["manage:tenants"],
+      isDemoMode: true,
+    }
+    const denied = authorizeAction(
+      unverifiedSession,
+      rootAction,
+      ROLE_CONFIGURATIONS.super_admin,
+    )
+    assert.equal(denied.allowed, false)
+    assert.equal(denied.reason, "This action requires verified permissions.")
+
+    const verifiedSession: UserSession = {
+      ...unverifiedSession,
+      verifiedRoleKeys: ["super_admin"],
+    }
+    const allowed = authorizeAction(
+      verifiedSession,
+      rootAction,
+      ROLE_CONFIGURATIONS.super_admin,
+    )
+    assert.equal(allowed.allowed, true)
+  })
+
+  test("Authorization binds active role, verification, and grants to that role", () => {
+    const individualConfig = ROLE_CONFIGURATIONS.individual
+    const individualSession: UserSession = {
+      userId: "individual_usr",
+      email: "individual@example.test",
+      activeRoleKey: "individual",
+      verifiedRoleKeys: ["individual"],
+      grantedPermissions: ["write:own_assets"],
+    }
+
+    assert.equal(
+      authorizePermission(
+        individualSession,
+        "write:own_assets",
+        individualConfig,
+      ).allowed,
+      true,
+      "matching verified role with its explicit permission should be allowed",
+    )
+
+    assert.equal(
+      authorizePermission(
+        {
+          ...individualSession,
+          activeRoleKey: "family",
+          verifiedRoleKeys: ["individual"],
+        },
+        "write:own_assets",
+        individualConfig,
+      ).allowed,
+      false,
+      "the session's active role must match the supplied role",
+    )
+
+    assert.equal(
+      authorizePermission(
+        { ...individualSession, verifiedRoleKeys: [] },
+        "write:own_assets",
+        individualConfig,
+      ).allowed,
+      false,
+      "an unverified role must be denied even when the permission is present",
+    )
+
+    assert.equal(
+      authorizePermission(
+        { ...individualSession, grantedPermissions: [] },
+        "write:own_assets",
+        individualConfig,
+      ).allowed,
+      false,
+      "a verified role without an explicit permission must be denied",
+    )
+
+    const familySession: UserSession = {
+      ...individualSession,
+      activeRoleKey: "family",
+      verifiedRoleKeys: ["family"],
+      grantedPermissions: ["write:own_assets"],
+    }
+    assert.equal(
+      authorizePermission(
+        familySession,
+        "write:own_assets",
+        ROLE_CONFIGURATIONS.family,
+      ).allowed,
+      false,
+      "a permission belonging to another role must not authorize this role",
+    )
+  })
+
+  test("Super Admin authorization remains role-bound and permission-scoped", () => {
+    const superAdminConfig = ROLE_CONFIGURATIONS.super_admin
+    const verifiedSuperAdmin: UserSession = {
+      userId: "root_usr",
+      email: "root@example.test",
+      activeRoleKey: "super_admin",
+      verifiedRoleKeys: ["super_admin"],
+      grantedPermissions: ["manage:tenants"],
+    }
+
+    assert.equal(
+      authorizePermission(
+        verifiedSuperAdmin,
+        "manage:tenants",
+        superAdminConfig,
+      ).allowed,
+      true,
+    )
+    assert.equal(
+      authorizePermission(
+        {
+          ...verifiedSuperAdmin,
+          activeRoleKey: "individual",
+        },
+        "manage:tenants",
+        superAdminConfig,
+      ).allowed,
+      false,
+      "selecting Super Admin cannot override a different active role",
+    )
+    assert.equal(
+      authorizePermission(
+        {
+          ...verifiedSuperAdmin,
+          grantedPermissions: ["write:own_assets"],
+        },
+        "write:own_assets",
+        superAdminConfig,
+      ).allowed,
+      false,
+      "a grant from another role cannot authorize a Super Admin action",
+    )
+  })
+
+  test("Every permission-gated quick action is assigned to its canonical role", () => {
+    for (const role of Object.values(ROLE_CONFIGURATIONS)) {
+      for (const action of role.quickActions) {
+        if (action.requiredPermission) {
+          assert.ok(
+            role.intendedPermissions.includes(action.requiredPermission),
+            `${role.key}:${action.id} requires a permission not assigned to that role`,
+          )
+        }
+      }
+    }
+  })
+
+  test("Reusable write modals fail closed before any service call without authorization", () => {
+    const writeModals = [
+      {
+        file: "AddAssetModal.tsx",
+        handler: "handleSubmit",
+        guard: "if (!isAuthorized)",
+        service: "apiService.assets.create",
+      },
+      {
+        file: "CreateGoalModal.tsx",
+        handler: "handleSubmit",
+        guard: "if (!isAuthorized)",
+        service: "apiService.goals.create",
+      },
+      {
+        file: "EvidenceVerifyModal.tsx",
+        handler: "handleSignOff",
+        guard: "if (!isStatusAuthorized(verificationStatus))",
+        service: "apiService.audits.verifyItem",
+      },
+      {
+        file: "SubmitClaimModal.tsx",
+        handler: "handleSubmit",
+        guard: "if (!isAuthorized)",
+        service: "apiService.insurance.submitClaim",
+      },
+      {
+        file: "RebalanceModal.tsx",
+        handler: "handleExecute",
+        guard: "if (!isAuthorized)",
+        service: "apiService.investments.simulateRebalance",
+      },
+      {
+        file: "OnboardClientModal.tsx",
+        handler: "handleSubmit",
+        guard: "if (!isAuthorized)",
+        service: "apiService.clients.create",
+      },
+      {
+        file: "ScheduleMeetingModal.tsx",
+        handler: "handleSubmit",
+        guard: "if (!isAuthorized)",
+        service: "apiService.meetings.schedule",
+      },
+    ]
+
+    for (const modal of writeModals) {
+      const source = readFileSync(
+        join(
+          process.cwd(),
+          "src",
+          "components",
+          "modals",
+          modal.file,
+        ),
+        "utf8",
+      )
+      assert.match(
+        source,
+        /isAuthorized = false/,
+        `${modal.file} must default to unauthorized`,
+      )
+
+      const handlerStart = source.indexOf(`const ${modal.handler} =`)
+      const guardIndex = source.indexOf(modal.guard, handlerStart)
+      const serviceIndex = source.indexOf(modal.service, handlerStart)
+      assert.ok(handlerStart >= 0, `${modal.file} handler was not found`)
+      assert.ok(
+        guardIndex > handlerStart && guardIndex < serviceIndex,
+        `${modal.file} must deny unauthorized submission before its service call`,
+      )
+    }
+  })
+
+  test("Super Admin permissions are intended-only, never default-granted, and require explicit verification", () => {
+    const permissions: Permission[] = [
+      "configure:platform",
+      "rotate:platform_keys",
+      "export:platform_users",
+      "export:system_telemetry",
+    ]
+    const superAdminConfig = ROLE_CONFIGURATIONS.super_admin
+
+    for (const permission of permissions) {
+      assert.ok(superAdminConfig.intendedPermissions.includes(permission))
+      assert.ok(!superAdminConfig.defaultGrantedPermissions.includes(permission))
+
+      for (const role of Object.values(ROLE_CONFIGURATIONS)) {
+        if (role.key !== "super_admin") {
+          assert.ok(!role.intendedPermissions.includes(permission))
+          assert.ok(!role.defaultGrantedPermissions.includes(permission))
+        }
+      }
+
+      const session: UserSession = {
+        userId: "root_usr",
+        email: "root@example.test",
+        activeRoleKey: "super_admin",
+        verifiedRoleKeys: [],
+        grantedPermissions: [permission],
+        isDemoMode: true,
+      }
+      assert.equal(
+        authorizePermission(session, permission, superAdminConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...session, verifiedRoleKeys: ["super_admin"] },
+          permission,
+          superAdminConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Private Bank wire approval requires verified role and explicit wire permission", () => {
+    const privateBankConfig = ROLE_CONFIGURATIONS.private_bank
+    const permission = "execute:wire_transfers"
+    assert.ok(privateBankConfig.intendedPermissions.includes(permission))
+    assert.ok(!privateBankConfig.defaultGrantedPermissions.includes(permission))
+
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "private_bank",
+      verifiedRoleKeys: [],
+      grantedPermissions: [],
+      isDemoMode: true,
+    }
+    assert.equal(
+      authorizePermission(previewSession, permission, privateBankConfig).allowed,
+      false,
+    )
+
+    const verifiedWithoutGrant: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["private_bank"],
+    }
+    assert.equal(
+      authorizePermission(
+        verifiedWithoutGrant,
+        permission,
+        privateBankConfig,
+      ).allowed,
+      false,
+    )
+
+    const verifiedAndGranted: UserSession = {
+      ...verifiedWithoutGrant,
+      grantedPermissions: [permission],
+    }
+    assert.equal(
+      authorizePermission(
+        verifiedAndGranted,
+        permission,
+        privateBankConfig,
+      ).allowed,
+      true,
+    )
+  })
+
+  test("Individual write actions require verified assets or profile permissions", () => {
+    const individualConfig = ROLE_CONFIGURATIONS.individual
+    const permissions = ["write:own_assets", "write:own_profile"] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "individual",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(individualConfig.intendedPermissions.includes(permission))
+      assert.ok(!individualConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(
+          previewSession,
+          permission,
+          individualConfig,
+        ).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["individual"],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(
+          verifiedSession,
+          permission,
+          individualConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Family write actions require verified member or family-group permissions", () => {
+    const familyConfig = ROLE_CONFIGURATIONS.family
+    const permissions = [
+      "manage:family_members",
+      "write:family_group",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "family",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(familyConfig.intendedPermissions.includes(permission))
+      assert.ok(!familyConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, familyConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["family"],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, familyConfig).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Student write actions require verified role and explicit permissions", () => {
+    const studentConfig = ROLE_CONFIGURATIONS.student
+    const permissions = [
+      "write:student_budget",
+      "write:student_education",
+      "write:own_profile",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "student",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(studentConfig.intendedPermissions.includes(permission))
+      assert.ok(!studentConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, studentConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["student"],
+    }
+    const verifiedWithoutGrants: UserSession = {
+      ...verifiedSession,
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(
+          verifiedWithoutGrants,
+          permission,
+          studentConfig,
+        ).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(verifiedSession, permission, studentConfig).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Financial Advisor write actions require verified role and explicit permissions", () => {
+    const advisorConfig = ROLE_CONFIGURATIONS.financial_advisor
+    const permissions = [
+      "write:client_roster",
+      "propose:trades",
+      "execute:trades",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "financial_advisor",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(advisorConfig.intendedPermissions.includes(permission))
+      assert.ok(!advisorConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, advisorConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["financial_advisor"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, advisorConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          advisorConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Investment Manager trade actions require verified role and explicit permissions", () => {
+    const investmentConfig = ROLE_CONFIGURATIONS.investment_manager
+    const permissions = ["propose:trades", "execute:trades"] as const
+    assert.ok(investmentConfig.intendedPermissions.includes("propose:trades"))
+    assert.ok(!investmentConfig.defaultGrantedPermissions.includes("propose:trades"))
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "investment_manager",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(investmentConfig.intendedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, investmentConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["investment_manager"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, investmentConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          investmentConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Insurance Advisor write actions require verified role and explicit permissions", () => {
+    const insuranceConfig = ROLE_CONFIGURATIONS.insurance_advisor
+    const permissions = [
+      "write:client_roster",
+      "write:own_profile",
+      "issue:insurance_quotes",
+      "submit:insurance_claims",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "insurance_advisor",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(insuranceConfig.intendedPermissions.includes(permission))
+      assert.ok(!insuranceConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, insuranceConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["insurance_advisor"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, insuranceConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          insuranceConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("CA write actions require verified role and explicit permissions", () => {
+    const caConfig = ROLE_CONFIGURATIONS.ca
+    const permissions = [
+      "conduct:statutory_audit",
+      "sign:audit_reports",
+      "file:tax_returns",
+      "write:own_profile",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "ca",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(caConfig.intendedPermissions.includes(permission))
+      assert.ok(!caConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, caConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["ca"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, caConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          caConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Tax Consultant write actions require verified role and explicit permissions", () => {
+    const taxConsultantConfig = ROLE_CONFIGURATIONS.tax_consultant
+    const permissions = [
+      "write:client_roster",
+      "write:tax_scenarios",
+      "file:tax_returns",
+      "write:own_profile",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "tax_consultant",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(taxConsultantConfig.intendedPermissions.includes(permission))
+      assert.ok(!taxConsultantConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(
+          previewSession,
+          permission,
+          taxConsultantConfig,
+        ).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["tax_consultant"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(
+          verifiedSession,
+          permission,
+          taxConsultantConfig,
+        ).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          taxConsultantConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Wealth Coach write actions require verified role and explicit permissions", () => {
+    const coachConfig = ROLE_CONFIGURATIONS.wealth_coach
+    const reviewBudgetAction = coachConfig.quickActions.find(
+      (action) => action.id === "review_budget",
+    )
+    assert.ok(reviewBudgetAction)
+    assert.equal(reviewBudgetAction.requiredPermission, undefined)
+
+    const permissions = [
+      "manage:coaching_cohorts",
+      "assign:client_milestones",
+      "write:own_profile",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "wealth_coach",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(coachConfig.intendedPermissions.includes(permission))
+      assert.ok(!coachConfig.defaultGrantedPermissions.includes(permission))
+      assert.equal(
+        authorizePermission(previewSession, permission, coachConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["wealth_coach"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, coachConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          coachConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Family Office write actions require verified role and explicit permissions", () => {
+    const familyOfficeConfig = ROLE_CONFIGURATIONS.family_office
+    const conveneCouncilAction = familyOfficeConfig.quickActions.find(
+      (action) => action.id === "convene_council",
+    )
+    const reviewEntitiesAction = familyOfficeConfig.quickActions.find(
+      (action) => action.id === "review_entities",
+    )
+    assert.ok(conveneCouncilAction)
+    assert.equal(
+      conveneCouncilAction.requiredPermission,
+      "write:family_group",
+    )
+    assert.ok(reviewEntitiesAction)
+    assert.equal(reviewEntitiesAction.requiredPermission, undefined)
+
+    const permissions = [
+      "write:family_group",
+      "approve:capital_calls",
+    ] as const
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "family_office",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(familyOfficeConfig.intendedPermissions.includes(permission))
+      assert.ok(
+        !familyOfficeConfig.defaultGrantedPermissions.includes(permission),
+      )
+      assert.equal(
+        authorizePermission(
+          previewSession,
+          permission,
+          familyOfficeConfig,
+        ).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["family_office"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(
+          verifiedSession,
+          permission,
+          familyOfficeConfig,
+        ).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          familyOfficeConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Corporate HR write actions require verified role and explicit permissions", () => {
+    const corporateHRConfig = ROLE_CONFIGURATIONS.corporate_hr
+    const permissions = [
+      "manage:workforce_wellness",
+      "manage:equity_plans",
+    ] as const
+    const workshopAction = corporateHRConfig.quickActions.find(
+      (action) => action.id === "launch_workshop",
+    )
+    const broadcastAction = corporateHRConfig.quickActions.find(
+      (action) => action.id === "notify_benefits",
+    )
+    assert.ok(workshopAction)
+    assert.equal(workshopAction.requiredPermission, undefined)
+    assert.ok(broadcastAction)
+    assert.equal(
+      broadcastAction.requiredPermission,
+      "manage:workforce_wellness",
+    )
+
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "corporate_hr",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(corporateHRConfig.intendedPermissions.includes(permission))
+      assert.ok(
+        !corporateHRConfig.defaultGrantedPermissions.includes(permission),
+      )
+      assert.equal(
+        authorizePermission(previewSession, permission, corporateHRConfig)
+          .allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["corporate_hr"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, corporateHRConfig)
+          .allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          corporateHRConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("University permissions require verified role and explicit grants", () => {
+    const universityConfig = ROLE_CONFIGURATIONS.university
+    const permissions = [
+      "manage:campus_events",
+      "issue:academic_credentials",
+      "write:university_settings",
+      "export:education_reports",
+      "export:scholarship_disbursements",
+    ] as const
+    const publishCourseAction = universityConfig.quickActions.find(
+      (action) => action.id === "publish_course",
+    )
+    const issueCredentialsAction = universityConfig.quickActions.find(
+      (action) => action.id === "issue_diploma_creds",
+    )
+    const exportAnalyticsAction = universityConfig.quickActions.find(
+      (action) => action.id === "export_analytics",
+    )
+    assert.ok(publishCourseAction)
+    assert.equal(publishCourseAction.requiredPermission, undefined)
+    assert.ok(issueCredentialsAction)
+    assert.equal(issueCredentialsAction.requiredPermission, undefined)
+    assert.ok(exportAnalyticsAction)
+    assert.equal(
+      exportAnalyticsAction.requiredPermission,
+      "export:education_reports",
+    )
+
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "university",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(universityConfig.intendedPermissions.includes(permission))
+      assert.ok(
+        !universityConfig.defaultGrantedPermissions.includes(permission),
+      )
+      assert.equal(
+        authorizePermission(previewSession, permission, universityConfig)
+          .allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["university"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, universityConfig)
+          .allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          universityConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Government write and export permissions require verification and explicit grants", () => {
+    const governmentConfig = ROLE_CONFIGURATIONS.government_organizations
+    const permissions = [
+      "audit:public_funds",
+      "manage:public_programs",
+      "write:government_settings",
+      "export:public_funds",
+    ] as const
+    const readOnlyNavigationActions = [
+      "launch_campaign",
+      "audit_disbursements",
+      "convene_taskforce",
+    ]
+
+    for (const actionId of readOnlyNavigationActions) {
+      const action = governmentConfig.quickActions.find(
+        (quickAction) => quickAction.id === actionId,
+      )
+      assert.ok(action)
+      assert.equal(action.requiredPermission, undefined)
+    }
+
+    const exportAction = governmentConfig.quickActions.find(
+      (action) => action.id === "generate_impact",
+    )
+    assert.ok(exportAction)
+    assert.equal(exportAction.requiredPermission, "export:public_funds")
+
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "government_organizations",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(governmentConfig.intendedPermissions.includes(permission))
+      assert.ok(
+        !governmentConfig.defaultGrantedPermissions.includes(permission),
+      )
+      assert.equal(
+        authorizePermission(previewSession, permission, governmentConfig)
+          .allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["government_organizations"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, governmentConfig)
+          .allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          governmentConfig,
+        ).allowed,
+        true,
+      )
+    }
+  })
+
+  test("Auditor actions require verified role and explicit permissions", () => {
+    const auditorConfig = ROLE_CONFIGURATIONS.auditors
+    const permissions = [
+      "read_only:audit_trail",
+      "flag:control_exceptions",
+      "certify:compliance_reports",
+      "export:audit_reports",
+      "write:auditor_settings",
+    ] as const
+    const navigationActions = [
+      "request_evidence",
+      "signoff_workpaper",
+      "log_finding",
+    ]
+
+    for (const actionId of navigationActions) {
+      const action = auditorConfig.quickActions.find(
+        (quickAction) => quickAction.id === actionId,
+      )
+      assert.ok(action)
+      assert.equal(action.requiredPermission, undefined)
+    }
+
+    const opinionExportAction = auditorConfig.quickActions.find(
+      (action) => action.id === "opinion_letter",
+    )
+    assert.ok(opinionExportAction)
+    assert.equal(
+      opinionExportAction.requiredPermission,
+      "export:audit_reports",
+    )
+
+    const previewSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "auditors",
+      verifiedRoleKeys: [],
+      grantedPermissions: [...permissions],
+      isDemoMode: true,
+    }
+
+    for (const permission of permissions) {
+      assert.ok(auditorConfig.intendedPermissions.includes(permission))
+      if (permission !== "read_only:audit_trail") {
+        assert.ok(!auditorConfig.defaultGrantedPermissions.includes(permission))
+      }
+      assert.equal(
+        authorizePermission(previewSession, permission, auditorConfig).allowed,
+        false,
+      )
+    }
+
+    const verifiedSession: UserSession = {
+      ...previewSession,
+      verifiedRoleKeys: ["auditors"],
+      grantedPermissions: [],
+    }
+    for (const permission of permissions) {
+      assert.equal(
+        authorizePermission(verifiedSession, permission, auditorConfig).allowed,
+        false,
+      )
+      assert.equal(
+        authorizePermission(
+          { ...verifiedSession, grantedPermissions: [permission] },
+          permission,
+          auditorConfig,
+        ).allowed,
+        true,
+      )
+    }
+
+    for (const role of Object.values(ROLE_CONFIGURATIONS)) {
+      if (role.key !== "auditors") {
+        assert.ok(!role.intendedPermissions.includes("write:auditor_settings"))
+      }
+    }
+  })
+
+  test("CSV export permissions are never default-granted and require verification", () => {
+    const intendedExports: Record<RoleKey, Permission[]> = {
+      individual: ["export:own_assets"],
+      family: ["export:family_group"],
+      student: ["export:student_budget", "export:student_loans"],
+      financial_advisor: ["export:client_roster", "export:audit_reports"],
+      ca: ["export:statutory_audit"],
+      tax_consultant: ["export:tax_returns"],
+      investment_manager: ["export:investment_portfolios"],
+      insurance_advisor: ["export:insurance_policies"],
+      wealth_coach: ["export:coaching_cohorts"],
+      family_office: ["export:family_office_entities"],
+      private_bank: ["export:private_bank_book"],
+      corporate_hr: ["export:workforce_wellness"],
+      university: ["export:scholarship_disbursements", "export:education_reports"],
+      government_organizations: ["export:public_funds"],
+      auditors: ["export:audit_reports"],
+      super_admin: ["export:system_telemetry", "export:platform_users"],
+    }
+    const exportPermissions = [
+      "export:own_assets",
+      "export:family_group",
+      "export:student_budget",
+      "export:student_loans",
+      "export:client_roster",
+      "export:investment_portfolios",
+      "export:statutory_audit",
+      "export:audit_reports",
+      "export:tax_returns",
+      "export:insurance_policies",
+      "export:coaching_cohorts",
+      "export:family_office_entities",
+      "export:private_bank_book",
+      "export:workforce_wellness",
+      "export:scholarship_disbursements",
+      "export:education_reports",
+      "export:public_funds",
+      "export:system_telemetry",
+      "export:platform_users",
+    ] as const
+
+    for (const role of Object.values(ROLE_CONFIGURATIONS)) {
+      for (const permission of intendedExports[role.key]) {
+        assert.ok(
+          role.intendedPermissions.includes(permission),
+          `${role.key} must declare ${permission} as an intended permission`,
+        )
+      }
+      for (const permission of exportPermissions) {
+        assert.ok(
+          !role.defaultGrantedPermissions.includes(permission),
+          `${role.key} must not default-grant ${permission}`,
+        )
+      }
+    }
+
+    const privateBankConfig = ROLE_CONFIGURATIONS.private_bank
+    const unverifiedSession: UserSession = {
+      userId: "preview_usr",
+      email: "preview@example.test",
+      activeRoleKey: "private_bank",
+      verifiedRoleKeys: [],
+      grantedPermissions: ["export:private_bank_book"],
+      isDemoMode: true,
+    }
+    assert.equal(
+      authorizePermission(
+        unverifiedSession,
+        "export:private_bank_book",
+        privateBankConfig,
+      ).allowed,
+      false,
+    )
+
+    const verifiedSession: UserSession = {
+      ...unverifiedSession,
+      verifiedRoleKeys: ["private_bank"],
+    }
+    assert.equal(
+      authorizePermission(
+        verifiedSession,
+        "export:private_bank_book",
+        privateBankConfig,
+      ).allowed,
+      true,
+    )
+  })
+
+  test("ExportModal denies exports without authorization context", () => {
+    const checker = createExportAuthorizationChecker(() => null)
+    assert.equal(
+      checker.checkAuthorization("export:own_assets").allowed,
+      false,
+    )
+  })
+
+  test("ExportModal denies exports when the permission is missing", () => {
+    const context: ExportAuthorizationContextValue = {
+      roleConfig: ROLE_CONFIGURATIONS.individual,
+      userSession: {
+        userId: "verified_user",
+        email: "verified@example.test",
+        activeRoleKey: "individual",
+        verifiedRoleKeys: ["individual"],
+        grantedPermissions: [],
+      },
+    }
+    const checker = createExportAuthorizationChecker(() => context)
+
+    assert.equal(
+      checker.checkAuthorization("export:own_assets", "individual").allowed,
+      false,
+    )
+  })
+
+  await test("ExportModal denies if the active role changes during the delay", async () => {
+    const permission = "export:audit_reports"
+    const makeContext = (
+      role: "financial_advisor" | "auditors",
+    ): ExportAuthorizationContextValue => ({
+      roleConfig: ROLE_CONFIGURATIONS[role],
+      userSession: {
+        userId: "verified_user",
+        email: "verified@example.test",
+        activeRoleKey: role,
+        verifiedRoleKeys: [role],
+        grantedPermissions: [permission],
+      },
+    })
+    let context = makeContext("financial_advisor")
+    const checker = createExportAuthorizationChecker(() => context)
+    const roleAtStart = checker.getActiveRole()!
+    assert.equal(
+      checker.checkAuthorization(permission, roleAtStart).allowed,
+      true,
+    )
+
+    const pendingAuthorization = new Promise<void>((resolve) =>
+      setTimeout(resolve, 0),
+    ).then(() => checker.checkAuthorization(permission, roleAtStart))
+    context = makeContext("auditors")
+
+    assert.equal((await pendingAuthorization).allowed, false)
+  })
+
+  await test("ExportModal denies if the permission is revoked during the delay", async () => {
+    const makeContext = (grantedPermissions: Permission[]) =>
+      ({
+        roleConfig: ROLE_CONFIGURATIONS.individual,
+        userSession: {
+          userId: "verified_user",
+          email: "verified@example.test",
+          activeRoleKey: "individual",
+          verifiedRoleKeys: ["individual"],
+          grantedPermissions,
+        },
+      }) satisfies ExportAuthorizationContextValue
+    let context = makeContext(["export:own_assets"])
+    const checker = createExportAuthorizationChecker(() => context)
+    const roleAtStart = checker.getActiveRole()!
+
+    const pendingAuthorization = new Promise<void>((resolve) =>
+      setTimeout(resolve, 0),
+    ).then(() =>
+      checker.checkAuthorization("export:own_assets", roleAtStart),
+    )
+    context = makeContext([])
+
+    assert.equal((await pendingAuthorization).allowed, false)
+  })
+
+  await test("ExportModal allows export when authorization remains valid", async () => {
+    const context: ExportAuthorizationContextValue = {
+      roleConfig: ROLE_CONFIGURATIONS.individual,
+      userSession: {
+        userId: "verified_user",
+        email: "verified@example.test",
+        activeRoleKey: "individual",
+        verifiedRoleKeys: ["individual"],
+        grantedPermissions: ["export:own_assets"],
+      },
+    }
+    const checker = createExportAuthorizationChecker(() => context)
+    const roleAtStart = checker.getActiveRole()!
+    let exportInvoked = false
+
+    const pendingExport = new Promise<void>((resolve) =>
+      setTimeout(resolve, 0),
+    ).then(() => {
+      const authorization = checker.checkAuthorization(
+        "export:own_assets",
+        roleAtStart,
+      )
+      if (authorization.allowed) exportInvoked = true
+      return authorization
+    })
+
+    assert.equal((await pendingExport).allowed, true)
+    assert.equal(exportInvoked, true)
+  })
+
+  test("ExportModal checks current authorization after the delay before CSV generation", () => {
+    const source = readFileSync(
+      join(
+        process.cwd(),
+        "src",
+        "components",
+        "modals",
+        "ExportModal.tsx",
+      ),
+      "utf8",
+    )
+    const handlerStart = source.indexOf("const handleDownload =")
+    const delayIndex = source.indexOf("await new Promise", handlerStart)
+    const currentCheckIndex = source.indexOf(
+      "const latestAuthorization = checkAuthorization(",
+      delayIndex,
+    )
+    const denialIndex = source.indexOf(
+      "if (formatRequiresAuthorization && !latestAuthorization.allowed)",
+      currentCheckIndex,
+    )
+    const csvGenerationIndex = source.indexOf(
+      "apiService.export.exportToCsv",
+      denialIndex,
+    )
+
+    assert.ok(handlerStart >= 0)
+    assert.ok(delayIndex > handlerStart)
+    assert.ok(currentCheckIndex > delayIndex)
+    assert.ok(denialIndex > currentCheckIndex)
+    assert.ok(csvGenerationIndex > denialIndex)
+    assert.doesNotMatch(
+      source.slice(delayIndex, csvGenerationIndex),
+      /authorization\.allowed/,
+    )
   })
 
   test("Open actions without requiredPermission are allowed for all users", () => {
@@ -477,7 +1867,7 @@ async function runVerificationSuite() {
     }
   })
 
-  test("Zero-Trust: switching to any of the 16 roles preserves default restricted privileges", () => {
+  test("Zero-Trust: switching to any of the 16 roles grants no permissions", () => {
     for (const roleKey of ROLE_KEYS) {
       const config = ROLE_CONFIGURATIONS[roleKey]
       const simulatedSession: UserSession = {
@@ -485,7 +1875,7 @@ async function runVerificationSuite() {
         email: "alex.morgan@wealthsphere.ai",
         activeRoleKey: roleKey,
         verifiedRoleKeys: ["individual"], // only individual verified by default
-        grantedPermissions: roleKey === "individual" ? config.defaultGrantedPermissions : [],
+        grantedPermissions: [],
         isDemoMode: true,
       }
 
@@ -493,10 +1883,8 @@ async function runVerificationSuite() {
       const protectedActions = config.quickActions.filter((a) => a.requiredPermission)
       for (const action of protectedActions) {
         const auth = authorizeAction(simulatedSession, action, config)
-        if (roleKey !== "individual" && !simulatedSession.grantedPermissions.includes(action.requiredPermission!)) {
-          assert.equal(auth.allowed, false, `Zero-Trust breach: ${roleKey}:${action.id} allowed without granted permission!`)
-          assert.equal(auth.requiresVerification, true)
-        }
+        assert.equal(auth.allowed, false, `Zero-Trust breach: ${roleKey}:${action.id} allowed without granted permission!`)
+        assert.equal(auth.requiresVerification, true)
       }
     }
   })
@@ -511,4 +1899,3 @@ async function runVerificationSuite() {
 }
 
 runVerificationSuite()
-

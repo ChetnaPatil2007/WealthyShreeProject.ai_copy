@@ -8,11 +8,14 @@ import { CreateGoalModal } from "../../components/modals/CreateGoalModal"
 import { RebalanceModal } from "../../components/modals/RebalanceModal"
 import { ExportModal } from "../../components/modals/ExportModal"
 import type { MockAsset, MockGoal } from "../../services/mockData"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface FamilyPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -20,9 +23,37 @@ export function FamilyModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: FamilyPageProps) {
   const { showToast } = useToast()
+  const roleConfig = getRoleConfig(userSession.activeRoleKey)
+  const memberAuthorization = authorizePermission(
+    userSession,
+    "manage:family_members",
+    roleConfig,
+  )
+  const familyGroupAuthorization = authorizePermission(
+    userSession,
+    "write:family_group",
+    roleConfig,
+  )
+  const runAuthorizedAction = (
+    permission: Permission,
+    action: () => void,
+  ) => {
+    if (!authorizePermission(userSession, permission, roleConfig).allowed) {
+      showToast({
+        title: "Access Restricted",
+        message: "This action requires verified permissions.",
+        tone: "warning",
+      })
+      return false
+    }
+
+    action()
+    return true
+  }
 
   // Modal states
   const [showAddAsset, setShowAddAsset] = useState(false)
@@ -234,13 +265,19 @@ export function FamilyModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => {
+                onClick={() => runAuthorizedAction("manage:family_members", () => {
                   showToast({
                     title: "Invite Family Member",
                     message: "Invitation link generated with restricted zero-trust onboarding credentials.",
                     tone: "info",
                   })
-                }}
+                })}
+                disabled={!memberAuthorization.allowed}
+                title={
+                  memberAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="family" size={16} /> Invite Family Member
               </button>
@@ -258,6 +295,11 @@ export function FamilyModulePage({
                 <Icon name="shield" size={16} /> Audit Signing Roles
               </button>
             </div>
+            {!memberAuthorization.allowed && (
+              <p className="action-restriction-notice" role="note">
+                This action requires verified permissions.
+              </p>
+            )}
           </div>
           <div className="module-stat">
             <span>Household Members</span>
@@ -267,7 +309,6 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
-
         {/* Metric Cards Grid */}
         <section className="metric-grid" style={{ marginTop: "16px" }}>
           <MetricCard
@@ -350,13 +391,19 @@ export function FamilyModulePage({
                   type="button"
                   className="button button--secondary"
                   style={{ minHeight: "32px", padding: "0 12px", fontSize: "11px" }}
-                  onClick={() => {
+                  onClick={() => runAuthorizedAction("manage:family_members", () => {
                     showToast({
                       title: "Member Permissions",
                       message: `Opened permission review for ${m.name}. Access level: ${m.access}.`,
                       tone: "info",
                     })
-                  }}
+                  })}
+                  disabled={!memberAuthorization.allowed}
+                  title={
+                    memberAuthorization.allowed
+                      ? undefined
+                      : "This action requires verified permissions."
+                  }
                 >
                   Manage Permissions
                 </button>
@@ -387,7 +434,17 @@ export function FamilyModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowAddAsset(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:family_group", () =>
+                    setShowAddAsset(true),
+                  )
+                }
+                disabled={!familyGroupAuthorization.allowed}
+                title={
+                  familyGroupAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="plus" size={16} /> Register Shared Asset
               </button>
@@ -408,6 +465,11 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
+        {!familyGroupAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Metric Cards Grid */}
         <section className="metric-grid" style={{ marginTop: "16px" }}>
@@ -475,38 +537,50 @@ export function FamilyModulePage({
             actionButton={{
               label: "Add Asset",
               icon: "plus",
-              onClick: () => setShowAddAsset(true),
+              onClick: () =>
+                runAuthorizedAction("write:family_group", () =>
+                  setShowAddAsset(true),
+                ),
+              disabled: !familyGroupAuthorization.allowed,
+              disabledMessage: "This action requires verified permissions.",
             }}
           />
         </section>
 
         <AddAssetModal
           isOpen={showAddAsset}
+          isAuthorized={familyGroupAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:family_group", () => {})
+          }
           onClose={() => setShowAddAsset(false)}
           onAssetAdded={(asset) => {
-            setSharedAssets((prev) => [
-              {
-                id: asset.id,
-                name: asset.name,
-                entityType: "Shared Family Holding",
-                owners: "Alex & Elena Morgan",
-                valuation: asset.valuation,
-                alexPct: 50,
-                elenaPct: 50,
-                trustPct: 0,
-              },
-              ...prev,
-            ])
-            showToast({
-              title: "Shared Asset Registered",
-              message: `Recorded ${asset.name} ($${asset.valuation.toLocaleString()}) under household ownership.`,
-              tone: "success",
+            runAuthorizedAction("write:family_group", () => {
+              setSharedAssets((prev) => [
+                {
+                  id: asset.id,
+                  name: asset.name,
+                  entityType: "Shared Family Holding",
+                  owners: "Alex & Elena Morgan",
+                  valuation: asset.valuation,
+                  alexPct: 50,
+                  elenaPct: 50,
+                  trustPct: 0,
+                },
+                ...prev,
+              ])
+              showToast({
+                title: "Shared Asset Registered",
+                message: `Recorded ${asset.name} ($${asset.valuation.toLocaleString()}) under household ownership.`,
+                tone: "success",
+              })
             })
           }}
         />
 
         <ExportModal
           isOpen={showExport}
+          requiredPermission="export:family_group"
           onClose={() => setShowExport(false)}
           title="Family Shared Assets Export"
           headers={["Asset Name", "Entity Structure", "Owners", "Valuation"]}
@@ -543,13 +617,22 @@ export function FamilyModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => {
-                  showToast({
-                    title: "Household Surplus",
-                    message: "Family monthly surplus of $30,300 automatically swept to trust investments.",
-                    tone: "success",
+                onClick={() =>
+                  runAuthorizedAction("write:family_group", () => {
+                    showToast({
+                      title: "Household Surplus",
+                      message:
+                        "Family monthly surplus of $30,300 automatically swept to trust investments.",
+                      tone: "success",
+                    })
                   })
-                }}
+                }
+                disabled={!familyGroupAuthorization.allowed}
+                title={
+                  familyGroupAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="plus" size={16} /> Sweep Surplus to Trusts
               </button>
@@ -563,6 +646,11 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
+        {!familyGroupAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Metric Cards Grid */}
         <section className="metric-grid" style={{ marginTop: "16px" }}>
@@ -696,7 +784,17 @@ export function FamilyModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowCreateGoal(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:family_group", () =>
+                    setShowCreateGoal(true),
+                  )
+                }
+                disabled={!familyGroupAuthorization.allowed}
+                title={
+                  familyGroupAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="plus" size={16} /> Create Family Goal
               </button>
@@ -710,6 +808,11 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
+        {!familyGroupAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Goals Grid */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "16px" }}>
@@ -753,18 +856,34 @@ export function FamilyModulePage({
                     type="button"
                     className="button button--secondary"
                     style={{ minHeight: "32px", padding: "0 12px", fontSize: "11px" }}
-                    onClick={() => {
-                      showToast({
-                        title: "Family Goal Contribution",
-                        message: `Deposited $10,000 to ${g.name}.`,
-                        tone: "success",
-                      })
-                      setFamilyGoals((prev) =>
-                        prev.map((item) =>
-                          item.id === g.id ? { ...item, current: Math.min(item.target, item.current + 10000) } : item
+                    onClick={() =>
+                      runAuthorizedAction("write:family_group", () => {
+                        showToast({
+                          title: "Family Goal Contribution",
+                          message: `Deposited $10,000 to ${g.name}.`,
+                          tone: "success",
+                        })
+                        setFamilyGoals((prev) =>
+                          prev.map((item) =>
+                            item.id === g.id
+                              ? {
+                                  ...item,
+                                  current: Math.min(
+                                    item.target,
+                                    item.current + 10000,
+                                  ),
+                                }
+                              : item,
+                          ),
                         )
-                      )
-                    }}
+                      })
+                    }
+                    disabled={!familyGroupAuthorization.allowed}
+                    title={
+                      familyGroupAuthorization.allowed
+                        ? undefined
+                        : "This action requires verified permissions."
+                    }
                   >
                     <Icon name="plus" size={12} /> Contribute Funds
                   </button>
@@ -776,25 +895,31 @@ export function FamilyModulePage({
 
         <CreateGoalModal
           isOpen={showCreateGoal}
+          isAuthorized={familyGroupAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:family_group", () => {})
+          }
           onClose={() => setShowCreateGoal(false)}
           onGoalAdded={(newGoal) => {
-            setFamilyGoals((prev) => [
-              {
-                id: newGoal.id,
-                name: newGoal.name,
-                category: newGoal.category,
-                current: newGoal.currentAmount || 0,
-                target: newGoal.targetAmount,
-                deadline: newGoal.targetDate,
-                status: "On Track",
-                contributors: "Alex (50%), Elena (50%)",
-              },
-              ...prev,
-            ])
-            showToast({
-              title: "Family Goal Created",
-              message: `Created collaborative goal "${newGoal.name}".`,
-              tone: "success",
+            runAuthorizedAction("write:family_group", () => {
+              setFamilyGoals((prev) => [
+                {
+                  id: newGoal.id,
+                  name: newGoal.name,
+                  category: newGoal.category,
+                  current: newGoal.currentAmount || 0,
+                  target: newGoal.targetAmount,
+                  deadline: newGoal.targetDate,
+                  status: "On Track",
+                  contributors: "Alex (50%), Elena (50%)",
+                },
+                ...prev,
+              ])
+              showToast({
+                title: "Family Goal Created",
+                message: `Created collaborative goal "${newGoal.name}".`,
+                tone: "success",
+              })
             })
           }}
         />
@@ -819,7 +944,17 @@ export function FamilyModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowRebalance(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:family_group", () =>
+                    setShowRebalance(true),
+                  )
+                }
+                disabled={!familyGroupAuthorization.allowed}
+                title={
+                  familyGroupAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="pie" size={16} /> Simulate Family Rebalance
               </button>
@@ -846,6 +981,11 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
+        {!familyGroupAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Metric Cards Grid */}
         <section className="metric-grid" style={{ marginTop: "16px" }}>
@@ -957,12 +1097,18 @@ export function FamilyModulePage({
 
         <RebalanceModal
           isOpen={showRebalance}
+          isAuthorized={familyGroupAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:family_group", () => {})
+          }
           onClose={() => setShowRebalance(false)}
           onRebalanceComplete={() => {
-            showToast({
-              title: "Family Rebalance Executed",
-              message: "Synchronized allocations across all 3 family trusts.",
-              tone: "success",
+            runAuthorizedAction("write:family_group", () => {
+              showToast({
+                title: "Family Rebalance Executed",
+                message: "Synchronized allocations across all 3 family trusts.",
+                tone: "success",
+              })
             })
           }}
         />
@@ -1387,13 +1533,19 @@ export function FamilyModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => {
+                onClick={() => runAuthorizedAction("write:family_group", () => {
                   showToast({
                     title: "Document Uploaded",
                     message: "Committed encrypted PDF to family vault with trustee signatory permissions.",
                     tone: "success",
                   })
-                }}
+                })}
+                disabled={!familyGroupAuthorization.allowed}
+                title={
+                  familyGroupAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="plus" size={16} /> Upload Family Document
               </button>
@@ -1407,6 +1559,11 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
+        {!familyGroupAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         <section style={{ marginTop: "16px" }}>
           <DataTable
@@ -1470,6 +1627,11 @@ export function FamilyModulePage({
             </div>
           </div>
         </section>
+        {!familyGroupAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "16px", marginTop: "16px" }}>
           <div className="card" style={{ padding: "20px" }}>
@@ -1480,7 +1642,15 @@ export function FamilyModulePage({
                 <input
                   type="text"
                   value={familySettings.workspaceName}
-                  onChange={(e) => setFamilySettings({ ...familySettings, workspaceName: e.target.value })}
+                  onChange={(e) =>
+                    runAuthorizedAction("write:family_group", () =>
+                      setFamilySettings({
+                        ...familySettings,
+                        workspaceName: e.target.value,
+                      }),
+                    )
+                  }
+                  disabled={!familyGroupAuthorization.allowed}
                 />
               </div>
 
@@ -1489,7 +1659,15 @@ export function FamilyModulePage({
                 <input
                   type="number"
                   value={familySettings.multiSigThreshold}
-                  onChange={(e) => setFamilySettings({ ...familySettings, multiSigThreshold: Number(e.target.value) })}
+                  onChange={(e) =>
+                    runAuthorizedAction("write:family_group", () =>
+                      setFamilySettings({
+                        ...familySettings,
+                        multiSigThreshold: Number(e.target.value),
+                      }),
+                    )
+                  }
+                  disabled={!familyGroupAuthorization.allowed}
                 />
                 <small style={{ color: "var(--muted)", fontSize: "11px" }}>
                   Any distribution above this amount requires cryptographic authorization by both Alex and Elena Morgan.
@@ -1500,13 +1678,22 @@ export function FamilyModulePage({
                 type="button"
                 className="button button--primary"
                 style={{ marginTop: "10px", alignSelf: "flex-start" }}
-                onClick={() => {
-                  showToast({
-                    title: "Family Settings Saved",
-                    message: "Multi-signature threshold and governance parameters saved.",
-                    tone: "success",
+                onClick={() =>
+                  runAuthorizedAction("write:family_group", () => {
+                    showToast({
+                      title: "Family Settings Saved",
+                      message:
+                        "Multi-signature threshold and governance parameters saved.",
+                      tone: "success",
+                    })
                   })
-                }}
+                }
+                disabled={!familyGroupAuthorization.allowed}
+                title={
+                  familyGroupAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 Save Family Configuration
               </button>
@@ -1524,7 +1711,15 @@ export function FamilyModulePage({
                 <input
                   type="checkbox"
                   checked={familySettings.multiSigEnabled}
-                  onChange={(e) => setFamilySettings({ ...familySettings, multiSigEnabled: e.target.checked })}
+                  onChange={(e) =>
+                    runAuthorizedAction("write:family_group", () =>
+                      setFamilySettings({
+                        ...familySettings,
+                        multiSigEnabled: e.target.checked,
+                      }),
+                    )
+                  }
+                  disabled={!familyGroupAuthorization.allowed}
                 />
               </label>
 
@@ -1536,7 +1731,15 @@ export function FamilyModulePage({
                 <input
                   type="checkbox"
                   checked={familySettings.allowBeneficiaryView}
-                  onChange={(e) => setFamilySettings({ ...familySettings, allowBeneficiaryView: e.target.checked })}
+                  onChange={(e) =>
+                    runAuthorizedAction("write:family_group", () =>
+                      setFamilySettings({
+                        ...familySettings,
+                        allowBeneficiaryView: e.target.checked,
+                      }),
+                    )
+                  }
+                  disabled={!familyGroupAuthorization.allowed}
                 />
               </label>
 
@@ -1548,7 +1751,15 @@ export function FamilyModulePage({
                 <input
                   type="checkbox"
                   checked={familySettings.weeklyHouseholdDigest}
-                  onChange={(e) => setFamilySettings({ ...familySettings, weeklyHouseholdDigest: e.target.checked })}
+                  onChange={(e) =>
+                    runAuthorizedAction("write:family_group", () =>
+                      setFamilySettings({
+                        ...familySettings,
+                        weeklyHouseholdDigest: e.target.checked,
+                      }),
+                    )
+                  }
+                  disabled={!familyGroupAuthorization.allowed}
                 />
               </label>
             </div>

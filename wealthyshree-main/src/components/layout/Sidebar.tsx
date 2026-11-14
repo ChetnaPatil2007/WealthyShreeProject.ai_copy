@@ -3,6 +3,7 @@ import { Icon } from "../ui/Icon"
 
 export interface SidebarProps {
   roleConfig: RoleConfig
+  userName?: string
   active?: string
   activeId?: string
   onSelect: (navId: string) => void
@@ -13,6 +14,7 @@ export interface SidebarProps {
 
 export function Sidebar({
   roleConfig,
+  userName,
   active,
   activeId,
   onSelect,
@@ -21,6 +23,14 @@ export function Sidebar({
   onNavigateHome,
 }: SidebarProps) {
   const currentActive = activeId ?? active
+  const userInitials =
+    userName
+      ?.split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase() || "U"
   return (
     <>
       {open && (
@@ -72,13 +82,15 @@ export function Sidebar({
         </div>
 
         <div className="workspace-pill">
-          <span className="avatar">{roleConfig.persona.initials}</span>
+          <span className="avatar">
+            <Icon name={roleConfig.icon} size={14} />
+          </span>
           <div className="workspace-info">
-            <b title={roleConfig.persona.workspaceName}>
-              {roleConfig.persona.workspaceName}
+            <b title={`Demo organization: ${roleConfig.persona.workspaceName}`}>
+              Demo: {roleConfig.persona.workspaceName}
             </b>
-            <span title={roleConfig.persona.title}>
-              {roleConfig.persona.title}
+            <span title={`Demo role: ${roleConfig.persona.title}`}>
+              Demo role: {roleConfig.persona.title}
             </span>
           </div>
           <Icon name="chevron" size={14} />
@@ -127,10 +139,10 @@ export function Sidebar({
           </div>
 
           <button type="button" className="profile-row">
-            <span className="avatar">{roleConfig.persona.initials}</span>
+            <span className="avatar">{userInitials}</span>
             <div className="profile-info">
-              <b>{roleConfig.persona.name}</b>
-              <span>{roleConfig.persona.badgeLabel} Workspace</span>
+              <b>{userName || "Authenticated user"}</b>
+              <span>Demo {roleConfig.persona.badgeLabel} workspace</span>
             </div>
             <Icon name="more" size={16} />
           </button>

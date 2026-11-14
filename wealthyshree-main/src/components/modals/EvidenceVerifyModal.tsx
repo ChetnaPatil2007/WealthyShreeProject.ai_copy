@@ -3,17 +3,25 @@ import { Icon } from "../ui/Icon"
 import { apiService } from "../../services/apiService"
 import { useToast } from "../ui/Toast"
 
+export type EvidenceVerificationStatus = "pass" | "exception" | "sample_more"
+
 export interface EvidenceVerifyModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  authorizeStatus?: (status: EvidenceVerificationStatus) => boolean
+  onUnauthorized?: () => void
   onClose: () => void
   evidenceTitle?: string
   entity?: string
   evidenceId?: string
-  onVerified?: () => void
+  onVerified?: (status: EvidenceVerificationStatus) => void
 }
 
 export function EvidenceVerifyModal({
   isOpen,
+  isAuthorized = false,
+  authorizeStatus,
+  onUnauthorized,
   onClose,
   evidenceTitle = "Northern Trust Custodial Omnibus Cash Ledger Sample",
   entity = "Morgan Dynasty Trust",
@@ -23,14 +31,40 @@ export function EvidenceVerifyModal({
   const { showToast } = useToast()
   const [partnerNotes, setPartnerNotes] = useState("")
   const [verificationStatus, setVerificationStatus] =
-    useState<"pass" | "exception" | "sample_more">("pass")
+    useState<EvidenceVerificationStatus>("pass")
   const [isVerifying, setIsVerifying] = useState(false)
 
   if (!isOpen) return null
 
+  const isStatusAuthorized = (status: EvidenceVerificationStatus) =>
+    authorizeStatus ? authorizeStatus(status) : isAuthorized
+  const canSubmit = isStatusAuthorized(verificationStatus)
+  const denyAction = () => {
+    if (onUnauthorized) {
+      onUnauthorized()
+      return
+    }
+    showToast({
+      title: "Access Restricted",
+      message: "This action requires verified permissions.",
+      tone: "warning",
+    })
+  }
+
   const handleSignOff = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isStatusAuthorized(verificationStatus)) {
+      denyAction()
+      return
+    }
+
     setIsVerifying(true)
+
+    if (!isStatusAuthorized(verificationStatus)) {
+      setIsVerifying(false)
+      denyAction()
+      return
+    }
 
     const res = await apiService.audits.verifyItem(evidenceId)
     setIsVerifying(false)
@@ -43,7 +77,7 @@ export function EvidenceVerifyModal({
         }".`,
         tone: verificationStatus === "pass" ? "success" : "warning",
       })
-      if (onVerified) onVerified()
+      if (onVerified) onVerified(verificationStatus)
       onClose()
     } else {
       showToast({
@@ -80,6 +114,11 @@ export function EvidenceVerifyModal({
         </div>
 
         <form onSubmit={handleSignOff} className="modal-form">
+          {!canSubmit && (
+            <div className="modal-info-callout" role="alert">
+              This action requires verified permissions.
+            </div>
+          )}
           <div
             className="evidence-summary-card"
             style={{
@@ -147,6 +186,12 @@ export function EvidenceVerifyModal({
                     : "button--secondary"
                 }`}
                 onClick={() => setVerificationStatus("pass")}
+                disabled={!isStatusAuthorized("pass") || isVerifying}
+                title={
+                  !isStatusAuthorized("pass")
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
                 style={{ justifyContent: "center" }}
               >
                 Pass / Attest
@@ -159,6 +204,12 @@ export function EvidenceVerifyModal({
                     : "button--secondary"
                 }`}
                 onClick={() => setVerificationStatus("exception")}
+                disabled={!isStatusAuthorized("exception") || isVerifying}
+                title={
+                  !isStatusAuthorized("exception")
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
                 style={{ justifyContent: "center" }}
               >
                 Flag Exception
@@ -171,6 +222,12 @@ export function EvidenceVerifyModal({
                     : "button--secondary"
                 }`}
                 onClick={() => setVerificationStatus("sample_more")}
+                disabled={!isStatusAuthorized("sample_more") || isVerifying}
+                title={
+                  !isStatusAuthorized("sample_more")
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
                 style={{ justifyContent: "center" }}
               >
                 Sample More
@@ -189,7 +246,7 @@ export function EvidenceVerifyModal({
               placeholder="e.g. Sample confirmed against custodian statement dated 2025-05-12. No material variances noted."
               value={partnerNotes}
               onChange={(e) => setPartnerNotes(e.target.value)}
-              disabled={isVerifying}
+              disabled={isVerifying || !canSubmit}
             />
           </div>
 
@@ -214,7 +271,7 @@ export function EvidenceVerifyModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isVerifying}
+              disabled={isVerifying || !canSubmit}
             >
               {isVerifying ? (
                 <>

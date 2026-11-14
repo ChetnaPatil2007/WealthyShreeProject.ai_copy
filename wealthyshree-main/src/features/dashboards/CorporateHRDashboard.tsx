@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { ExportModal } from "../../components/modals"
 
 export interface CorporateHRDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function CorporateHRDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: CorporateHRDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "corporate_hr" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canManageWorkforce = hasPermission("manage:workforce_wellness")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"workshops" | "programs">(
     "workshops",
   )
@@ -291,12 +315,12 @@ export function CorporateHRDashboard({
             </span>
             <span>Supporting 4,850 Employees Across 8 Educational Tracks</span>
           </div>
-          <h1 className="hero-title">Karen Mitchell</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            VP of Total Rewards & People Ops · Enterprise People Console.
-            Workforce financial wellness analytics, 401(k) match optimization,
-            student loan assistance, equity compensation literacy, and
-            aggregated wellness telemetry.
+            Demo role: VP of Total Rewards & People Ops · Demo organization:
+            Enterprise People Console. Workforce financial wellness analytics,
+            401(k) match optimization, student loan assistance, equity
+            compensation literacy, and aggregated wellness telemetry.
           </p>
         </div>
         <div className="hero-actions">
@@ -389,18 +413,20 @@ export function CorporateHRDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "launch_workshop") onNavigate("Workshops")
-          else if (act.id === "auto_escalation") {
-            showToast({
-              title: "Auto-Escalation Sprint Initiated",
-              message:
-                "401(k) Auto-Escalation Sprint: Notified 4,850 employees regarding the +1% annual deferral opt-in window.",
-              tone: "success",
-            })
-          } else if (act.id === "loan_match") onNavigate("Wellness Programs")
-          else if (act.id === "broadcast_notice") onNavigate("Communications")
-          else onOpenAI()
+          const action = () => {
+            if (act.id === "launch_workshop") onNavigate("Workshops")
+            else if (act.id === "notify_benefits")
+              onNavigate("Communications")
+            else if (act.id === "run_census") onNavigate("Reports")
+            else onOpenAI()
+          }
+          if (act.requiredPermission) {
+            runAuthorized(act.requiredPermission, action)
+          } else {
+            action()
+          }
         }}
       />
 
@@ -756,12 +782,20 @@ export function CorporateHRDashboard({
                   <button
                     type="button"
                     className="button button--sm button--secondary"
+                    disabled={!canManageWorkforce}
+                    title={
+                      !canManageWorkforce
+                        ? permissionRequiredText
+                        : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Workshop Reminder Broadcasted",
-                        message: `Broadcasting reminder invite & calendar sync for ${ws.title}.`,
-                        tone: "info",
-                      })
+                      runAuthorized("manage:workforce_wellness", () =>
+                        showToast({
+                          title: "Workshop Reminder Broadcasted",
+                          message: `Broadcasting reminder invite & calendar sync for ${ws.title}.`,
+                          tone: "info",
+                        }),
+                      )
                     }
                   >
                     Send Reminder
@@ -770,6 +804,11 @@ export function CorporateHRDashboard({
               </div>
             ))}
           </div>
+        )}
+        {!canManageWorkforce && activeTab === "workshops" && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
 
         {/* Tab 2: Programs */}
@@ -976,6 +1015,7 @@ export function CorporateHRDashboard({
       {/* Interactive Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:workforce_wellness"
         onClose={() => setShowExportModal(false)}
         title="Export ERISA Section 404(c) Aggregated Workforce Wellness Report"
         defaultFilename="erisa_workforce_wellness_report"

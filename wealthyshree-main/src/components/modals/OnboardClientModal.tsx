@@ -6,12 +6,16 @@ import type { MockClient } from "../../services/mockData"
 
 export interface OnboardClientModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  onUnauthorized?: () => void
   onClose: () => void
   onClientCreated?: (client: MockClient) => void
 }
 
 export function OnboardClientModal({
   isOpen,
+  isAuthorized = false,
+  onUnauthorized,
   onClose,
   onClientCreated,
 }: OnboardClientModalProps) {
@@ -49,6 +53,10 @@ export function OnboardClientModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAuthorized) {
+      onUnauthorized?.()
+      return
+    }
     if (!validate()) return
 
     setIsSubmitting(true)
@@ -106,6 +114,11 @@ export function OnboardClientModal({
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
+          {!isAuthorized && (
+            <div className="modal-info-callout" role="alert">
+              This action requires verified permissions.
+            </div>
+          )}
           <div className="form-group">
             <label htmlFor="client-name" className="form-label">
               Household or Institutional Name <span className="req">*</span>
@@ -250,7 +263,7 @@ export function OnboardClientModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               {isSubmitting ? (
                 <>

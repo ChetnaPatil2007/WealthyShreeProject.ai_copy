@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { SubmitClaimModal, ExportModal } from "../../components/modals"
 
 export interface InsuranceAdvisorDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function InsuranceAdvisorDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: InsuranceAdvisorDashboardProps) {
   const { showToast } = useToast()
+  const hasPermission = (permission: Permission) =>
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canSubmitClaims = hasPermission("submit:insurance_claims")
+  const canIssueQuotes = hasPermission("issue:insurance_quotes")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeQueueTab, setActiveQueueTab] = useState<"renewals" | "claims">(
     "renewals",
   )
@@ -295,11 +319,12 @@ export function InsuranceAdvisorDashboard({
               Managing 142 Households · $214.5M Aggregate Protection In Force
             </span>
           </div>
-          <h1 className="hero-title">Sarah Jenkins, CLU®</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Senior Risk & Protection Specialist · Jenkins Risk & Assurance.
-            Policy inventory monitoring, comprehensive mortality and disability
-            gap diagnostics, carrier quote analysis, and claims support.
+            Demo role: Senior Risk & Protection Specialist · Demo organization:
+            Jenkins Risk & Assurance. Policy inventory monitoring,
+            comprehensive mortality and disability gap diagnostics, carrier
+            quote analysis, and claims support.
           </p>
         </div>
         <div className="hero-actions">
@@ -314,12 +339,23 @@ export function InsuranceAdvisorDashboard({
           <button
             type="button"
             className="button button--secondary"
-            onClick={() => setShowClaimModal(true)}
+            disabled={!canSubmitClaims}
+            title={!canSubmitClaims ? permissionRequiredText : undefined}
+            onClick={() =>
+              runAuthorized("submit:insurance_claims", () =>
+                setShowClaimModal(true),
+              )
+            }
           >
             <Icon name="alert" size={16} />
             <span>Claims Hub</span>
           </button>
         </div>
+        {!canSubmitClaims && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </section>
 
       {/* 2. Seven Core Metric Cards */}
@@ -341,7 +377,15 @@ export function InsuranceAdvisorDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
+          if (
+            act.requiredPermission &&
+            !hasPermission(act.requiredPermission)
+          ) {
+            notifyUnauthorized()
+            return
+          }
           if (act.id === "run_gap_analysis") onNavigate("Coverage Analysis")
           else if (act.id === "issue_quote") onNavigate("Policies")
           else if (act.id === "dispatch_renewals") onNavigate("Renewals")
@@ -560,12 +604,16 @@ export function InsuranceAdvisorDashboard({
                   <button
                     type="button"
                     className="button button--secondary button--sm"
+                    disabled={!canIssueQuotes}
+                    title={!canIssueQuotes ? permissionRequiredText : undefined}
                     onClick={() =>
-                      showToast({
-                        title: "Renewal Dispatched",
-                        message: `Electronic renewal invoice & carrier notice dispatched to ${rn.client}.`,
-                        tone: "success",
-                      })
+                      runAuthorized("issue:insurance_quotes", () =>
+                        showToast({
+                          title: "Renewal Dispatched",
+                          message: `Electronic renewal invoice & carrier notice dispatched to ${rn.client}.`,
+                          tone: "success",
+                        }),
+                      )
                     }
                   >
                     Send Invoice
@@ -761,18 +809,23 @@ export function InsuranceAdvisorDashboard({
       {/* Interactive Modals */}
       <SubmitClaimModal
         isOpen={showClaimModal}
+        isAuthorized={canSubmitClaims}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowClaimModal(false)}
-        onClaimSubmitted={(c) => {
-          showToast({
-            title: "Claim Submitted",
-            message: `Claim ${c.claimNumber} for ${c.client} submitted to carrier claims portal.`,
-            tone: "success",
-          })
-        }}
+        onClaimSubmitted={(c) =>
+          runAuthorized("submit:insurance_claims", () =>
+            showToast({
+              title: "Claim Submitted",
+              message: `Claim ${c.claimNumber} for ${c.client} submitted to carrier claims portal.`,
+              tone: "success",
+            }),
+          )
+        }
       />
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:insurance_policies"
         onClose={() => setShowExportModal(false)}
         title="Export Insurance Policy Inventory & Gap Analysis"
         defaultFilename="wealthsphere_insurance_policies"

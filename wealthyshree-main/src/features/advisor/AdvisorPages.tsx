@@ -15,11 +15,15 @@ import {
   type MockGoal,
   type MockMeeting,
 } from "../../services/mockData"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface AdvisorPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userName: string
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -50,8 +54,30 @@ export function AdvisorModulePage({
   navName,
   openAI,
   onNavigate,
+  userName,
+  userSession,
 }: AdvisorPageProps) {
   const { showToast } = useToast()
+  const advisorRoleConfig = getRoleConfig("financial_advisor")
+  const hasPermission = (permission: Permission) =>
+    authorizePermission(userSession, permission, advisorRoleConfig).allowed
+  const canWriteClientRoster = hasPermission("write:client_roster")
+  const canProposeTrades = hasPermission("propose:trades")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // Modals state
   const [showOnboardModal, setShowOnboardModal] = useState(false)
@@ -201,7 +227,7 @@ export function AdvisorModulePage({
   const [aiChat, setAiChat] = useState<Array<{ sender: "ai" | "advisor"; text: string }>>([
     {
       sender: "ai",
-      text: "Good morning, Marcus. I have completed portfolio drift scans across all 84 advisor households. Harrison Vance's equity sleeve is currently drifted +2.4% above mandate, and Dr. Pendelton's retirement stress test is ready for your 2:00 PM review. How would you like to proceed?",
+      text: `Good morning, ${userName}. I have completed portfolio drift scans across all 84 advisor households. Harrison Vance's equity sleeve is currently drifted +2.4% above mandate, and Dr. Pendelton's retirement stress test is ready for your 2:00 PM review. How would you like to proceed?`,
     },
   ])
   const [aiInput, setAiInput] = useState("")
@@ -233,23 +259,27 @@ export function AdvisorModulePage({
 
   // Handle client onboarding modal submission
   const handleClientCreated = (newClient: MockClient) => {
-    setClients([newClient, ...clients])
-    setShowOnboardModal(false)
-    showToast({
-      title: "Client Onboarded (Simulated)",
-      message: `Enrolled ${newClient.name} with simulated AUM of $${newClient.aum.toLocaleString()}.`,
-      tone: "success",
+    runAuthorized("write:client_roster", () => {
+      setClients([newClient, ...clients])
+      setShowOnboardModal(false)
+      showToast({
+        title: "Client Onboarded (Simulated)",
+        message: `Enrolled ${newClient.name} with simulated AUM of $${newClient.aum.toLocaleString()}.`,
+        tone: "success",
+      })
     })
   }
 
   // Handle meeting scheduled
   const handleMeetingScheduled = (meeting: MockMeeting) => {
-    setMeetings([meeting, ...meetings])
-    setShowScheduleModal(false)
-    showToast({
-      title: "Meeting Scheduled",
-      message: `Calendar invite dispatched for ${meeting.client}.`,
-      tone: "success",
+    runAuthorized("write:client_roster", () => {
+      setMeetings([meeting, ...meetings])
+      setShowScheduleModal(false)
+      showToast({
+        title: "Meeting Scheduled",
+        message: `Calendar invite dispatched for ${meeting.client}.`,
+        tone: "success",
+      })
     })
   }
 
@@ -293,7 +323,13 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowOnboardModal(true)}
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("write:client_roster", () =>
+                    setShowOnboardModal(true),
+                  )
+                }
               >
                 <Icon name="plus" size={16} />
                 <span>Onboard New Client</span>
@@ -307,6 +343,11 @@ export function AdvisorModulePage({
                 <span>Export Client Roster CSV</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Total Practice AUM</span>
@@ -451,10 +492,14 @@ export function AdvisorModulePage({
                     type="button"
                     className="button button--ghost"
                     style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
-                    onClick={() => {
-                      setSelectedClientName(r.name)
-                      setShowScheduleModal(true)
-                    }}
+                    disabled={!canWriteClientRoster}
+                    title={!canWriteClientRoster ? permissionRequiredText : undefined}
+                    onClick={() =>
+                      runAuthorized("write:client_roster", () => {
+                        setSelectedClientName(r.name)
+                        setShowScheduleModal(true)
+                      })
+                    }
                   >
                     Meeting
                   </button>
@@ -482,6 +527,8 @@ export function AdvisorModulePage({
         {showOnboardModal && (
           <OnboardClientModal
             isOpen={showOnboardModal}
+            isAuthorized={canWriteClientRoster}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowOnboardModal(false)}
             onClientCreated={handleClientCreated}
           />
@@ -489,6 +536,8 @@ export function AdvisorModulePage({
         {showScheduleModal && (
           <ScheduleMeetingModal
             isOpen={showScheduleModal}
+            isAuthorized={canWriteClientRoster}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowScheduleModal(false)}
             initialClient={selectedClientName}
             onMeetingScheduled={handleMeetingScheduled}
@@ -497,6 +546,7 @@ export function AdvisorModulePage({
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:client_roster"
             onClose={() => setShowExportModal(false)}
             headers={["Client Name", "Tier", "AUM", "Status", "Health Score", "Email"]}
             data={filteredClients.map((c) => [
@@ -532,12 +582,17 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "New Plan Drafted (Simulated)",
-                    message: "Initialized new comprehensive financial planning template.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:client_roster", () =>
+                    showToast({
+                      title: "New Plan Drafted (Simulated)",
+                      message:
+                        "Initialized new comprehensive financial planning template.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
@@ -552,6 +607,11 @@ export function AdvisorModulePage({
                 <span>Run Monte Carlo Analysis</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Practice Plan Coverage</span>
@@ -688,18 +748,28 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canProposeTrades}
+                title={!canProposeTrades ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Rebalance Scan Complete (Simulated)",
-                    message: "Scanned 84 household portfolios. 4 rebalance proposals queued.",
-                    tone: "success",
-                  })
+                  runAuthorized("propose:trades", () =>
+                    showToast({
+                      title: "Rebalance Scan Complete (Simulated)",
+                      message:
+                        "Scanned 84 household portfolios. 4 rebalance proposals queued.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="activity" size={16} />
                 <span>Scan Portfolio Drift</span>
               </button>
             </div>
+            {!canProposeTrades && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Practice Managed Assets</span>
@@ -815,18 +885,28 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Risk Survey Sent (Simulated)",
-                    message: "Dispatched digital risk tolerance assessment questionnaire to selected clients.",
-                    tone: "info",
-                  })
+                  runAuthorized("write:client_roster", () =>
+                    showToast({
+                      title: "Risk Survey Sent (Simulated)",
+                      message:
+                        "Dispatched digital risk tolerance assessment questionnaire to selected clients.",
+                      tone: "info",
+                    }),
+                  )
                 }
               >
                 <Icon name="shield" size={16} />
                 <span>Send Risk Assessment</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Suitability Compliance</span>
@@ -917,12 +997,23 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowGoalModal(true)}
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("write:client_roster", () =>
+                    setShowGoalModal(true),
+                  )
+                }
               >
                 <Icon name="plus" size={16} />
                 <span>Add Client Goal</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Tracked Client Goals</span>
@@ -992,13 +1083,17 @@ export function AdvisorModulePage({
         {showGoalModal && (
           <CreateGoalModal
             isOpen={showGoalModal}
+            isAuthorized={canWriteClientRoster}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowGoalModal(false)}
             onGoalAdded={(goal) => {
-              setShowGoalModal(false)
-              showToast({
-                title: "Goal Created (Simulated)",
-                message: `Recorded goal "${goal.name}" for client planning schedule.`,
-                tone: "success",
+              runAuthorized("write:client_roster", () => {
+                setShowGoalModal(false)
+                showToast({
+                  title: "Goal Created (Simulated)",
+                  message: `Recorded goal "${goal.name}" for client planning schedule.`,
+                  tone: "success",
+                })
               })
             }}
           />
@@ -1024,12 +1119,23 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowScheduleModal(true)}
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("write:client_roster", () =>
+                    setShowScheduleModal(true),
+                  )
+                }
               >
                 <Icon name="calendar" size={16} />
                 <span>Schedule New Meeting</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Upcoming This Week</span>
@@ -1110,6 +1216,8 @@ export function AdvisorModulePage({
         {showScheduleModal && (
           <ScheduleMeetingModal
             isOpen={showScheduleModal}
+            isAuthorized={canWriteClientRoster}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowScheduleModal(false)}
             onMeetingScheduled={handleMeetingScheduled}
           />
@@ -1222,6 +1330,7 @@ export function AdvisorModulePage({
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:audit_reports"
             onClose={() => setShowExportModal(false)}
             headers={["Report Title", "Category", "Date", "Status"]}
             data={[
@@ -1326,7 +1435,7 @@ export function AdvisorModulePage({
                 }}
               >
                 <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: "0.25rem" }}>
-                  {msg.sender === "advisor" ? "Marcus Sterling, CFP®" : "Sphere AI Advisory Co-Pilot"}
+                  {msg.sender === "advisor" ? userName : "Sphere AI Advisory Co-Pilot"}
                 </div>
                 <div style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>{msg.text}</div>
               </div>
@@ -1381,18 +1490,28 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Document Uploaded (Simulated)",
-                    message: "Signed IPS Agreement encrypted with AES-256 and stored in client vault.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:client_roster", () =>
+                    showToast({
+                      title: "Document Uploaded (Simulated)",
+                      message:
+                        "Signed IPS Agreement encrypted with AES-256 and stored in client vault.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
                 <span>Upload Client Document</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Vault Encryption</span>
@@ -1477,18 +1596,28 @@ export function AdvisorModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Settings Saved",
-                    message: "Practice configuration and custodian API rules updated.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:client_roster", () =>
+                    showToast({
+                      title: "Settings Saved",
+                      message:
+                        "Practice configuration and custodian API rules updated.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="check" size={16} />
                 <span>Save Practice Configuration</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">RIA Registration</span>
@@ -1509,6 +1638,7 @@ export function AdvisorModulePage({
                 <input
                   type="text"
                   defaultValue="Sterling Private Advisory LLP"
+                  disabled={!canWriteClientRoster}
                   style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
                 />
               </div>
@@ -1516,7 +1646,8 @@ export function AdvisorModulePage({
                 <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.25rem" }}>Managing Advisor</label>
                 <input
                   type="text"
-                  defaultValue="Marcus Sterling, CFP®, CIMA®"
+                  defaultValue={userName}
+                  disabled={!canWriteClientRoster}
                   style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
                 />
               </div>
@@ -1525,6 +1656,7 @@ export function AdvisorModulePage({
                 <input
                   type="text"
                   defaultValue="CRD # 2849102"
+                  disabled={!canWriteClientRoster}
                   style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
                 />
               </div>

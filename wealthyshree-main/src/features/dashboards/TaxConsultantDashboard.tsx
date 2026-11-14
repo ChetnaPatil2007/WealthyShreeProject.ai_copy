@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { ExportModal } from "../../components/modals"
 
 export interface TaxConsultantDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function TaxConsultantDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: TaxConsultantDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "tax_consultant" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canFileReturns = hasPermission("file:tax_returns")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"calendar" | "compliance">(
     "calendar",
   )
@@ -251,11 +275,12 @@ export function TaxConsultantDashboard({
               Managing 68 Tax Clients · $2.48M In Identified Tax Savings
             </span>
           </div>
-          <h1 className="hero-title">David Chen, EA</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Managing Tax Consultant · Chen International Tax Group.
-            Multi-jurisdiction tax planning, cross-border treaty compliance,
-            FATCA disclosures, and automated capital gains optimization.
+            Demo role: Managing Tax Consultant · Demo organization: Chen
+            International Tax Group. Multi-jurisdiction tax planning,
+            cross-border treaty compliance, FATCA disclosures, and automated
+            capital gains optimization.
           </p>
         </div>
         <div className="hero-actions">
@@ -350,6 +375,7 @@ export function TaxConsultantDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
           if (act.id === "run_harvest") onNavigate("Tax Calculations")
           else if (act.id === "new_scenario") onNavigate("Tax Planning")
@@ -585,12 +611,18 @@ export function TaxConsultantDashboard({
                   <button
                     type="button"
                     className="button button--secondary button--sm"
+                    disabled={!canFileReturns}
+                    title={
+                      !canFileReturns ? permissionRequiredText : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Audit Verification Initiated",
-                        message: `Running statutory audit verification and cross-referencing proofs for ${ct.task}.`,
-                        tone: "info",
-                      })
+                      runAuthorized("file:tax_returns", () =>
+                        showToast({
+                          title: "Audit Verification Initiated",
+                          message: `Running statutory audit verification and cross-referencing proofs for ${ct.task}.`,
+                          tone: "info",
+                        }),
+                      )
                     }
                   >
                     Run Audit
@@ -599,6 +631,11 @@ export function TaxConsultantDashboard({
               </div>
             ))}
           </div>
+        )}
+        {activeTab === "compliance" && !canFileReturns && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -722,6 +759,7 @@ export function TaxConsultantDashboard({
       {/* Interactive Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:tax_returns"
         onClose={() => setShowExportModal(false)}
         title="Export Tax Advisory Pipeline & Client Ledger"
         defaultFilename="wealthsphere_tax_consultant_pipeline"

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { useAuth0 } from "@auth0/auth0-react"
 import {
   getAllRoleConfigs,
   getRoleConfig,
@@ -323,9 +324,6 @@ function Logo({ compact = false }: { compact?: boolean }) {
   )
 }
 
-const allRoleConfigs = getAllRoleConfigs()
-const roles = allRoleConfigs.map((r) => r.displayName)
-
 interface LegacyNavItem {
   name: string
   icon: IconName
@@ -541,23 +539,21 @@ function Landing({
   )
 }
 
-function Auth({
-  mode,
-  initialRole = "Individual",
-  onBack,
-  onSuccess,
+const allRoleConfigs = getAllRoleConfigs()
+
+function RoleOnboarding({
+  userName,
+  selectedRole,
+  onSelectRole,
+  onContinue,
+  onLogout,
 }: {
-  mode: "login" | "roles"
-  initialRole?: string
-  onBack: () => void
-  onSuccess: (role: string) => void
+  userName: string
+  selectedRole: RoleConfig["key"] | null
+  onSelectRole: (role: RoleConfig["key"]) => void
+  onContinue: () => void
+  onLogout: () => void
 }) {
-  const [selectedRole, setSelectedRole] = useState(
-    getRoleConfig(initialRole).displayName,
-  )
-  const [step, setStep] = useState<"credentials" | "mfa">(
-    mode === "roles" ? "mfa" : "credentials",
-  )
   return (
     <div className="auth-shell">
       <div className="auth-aside">
@@ -584,88 +580,47 @@ function Auth({
         </div>
       </div>
       <div className="auth-main">
-        <Button variant="ghost" onClick={onBack} className="back-button">
-          ← Back
-        </Button>
-        {step === "credentials" ? (
-          <div className="auth-card">
-            <Badge tone="success">SECURE ACCESS</Badge>
-            <div className="title">Welcome back</div>
-            <div className="subtext">
-              Enter your credentials to access your wealth universe.
-            </div>
-            <Field label="Email address" placeholder="name@company.com" />
-            <Field
-              label="Password"
-              placeholder="Enter your password"
-              type="password"
-            />
-            <div className="form-meta">
-              <label className="check-label">
-                <input type="checkbox" defaultChecked /> Keep me signed in
-              </label>
-              <span>Forgot password?</span>
-            </div>
-            <Button className="full" onClick={() => setStep("mfa")}>
-              Continue securely <Icon name="arrow" />
-            </Button>
-            <div className="sso-divider">OR CONTINUE WITH</div>
-            <div className="sso-grid">
-              <Button variant="secondary">Google</Button>
-              <Button variant="secondary">Microsoft</Button>
-            </div>
-            <div className="auth-foot">
-              New to WealthSphere.ai?{" "}
-              <span onClick={() => setStep("mfa")}>Create your account</span>
-            </div>
+        <div className="auth-card">
+          <Badge tone="success">PERSONALIZE YOUR EXPERIENCE</Badge>
+          <div className="title">Welcome, {userName}</div>
+          <div className="subtext">
+            Choose the profession that best describes you.
           </div>
-        ) : (
-          <div className="auth-card role-card">
-            <Badge tone="success">PERSONALIZE YOUR EXPERIENCE</Badge>
-            <div className="title">
-              {mode === "login"
-                ? "Verify your identity"
-                : "How will you use WealthSphere?"}
-            </div>
-            <div className="subtext">
-              {mode === "login"
-                ? "Enter the verification code sent to your trusted device, then choose your workspace."
-                : "Choose a role. You can add additional workspaces later."}
-            </div>
-            {mode === "login" && (
-              <div className="otp-row">
-                {["8", "4", "2", "6", "1", "9"].map((n, i) => (
-                  <input
-                    key={i}
-                    aria-label={`Digit ${i + 1}`}
-                    defaultValue={n}
-                    maxLength={1}
-                  />
-                ))}
-              </div>
-            )}
-            <div className="role-grid">
-              {allRoleConfigs.map((config) => (
-                <button
-                  key={config.key}
-                  className={
-                    selectedRole === config.displayName
-                      ? "role-option selected"
-                      : "role-option"
-                  }
-                  onClick={() => setSelectedRole(config.displayName)}
-                >
-                  <Icon name={config.icon} />
-                  <span>{config.displayName}</span>
-                  {selectedRole === config.displayName && <Icon name="check" />}
-                </button>
-              ))}
-            </div>
-            <Button className="full" onClick={() => onSuccess(selectedRole)}>
-              Enter {selectedRole} workspace <Icon name="arrow" />
-            </Button>
+          <div className="role-grid">
+            {allRoleConfigs.map((config) => (
+              <button
+                key={config.key}
+                type="button"
+                aria-pressed={selectedRole === config.key}
+                className={
+                  selectedRole === config.key
+                    ? "role-option selected"
+                    : "role-option"
+                }
+                onClick={() => onSelectRole(config.key)}
+              >
+                <Icon name={config.icon} />
+                <span>{config.displayName}</span>
+                {selectedRole === config.key && <Icon name="check" />}
+              </button>
+            ))}
           </div>
-        )}
+          <div className="subtext">
+            This is a requested preference only. Access to protected features
+            requires backend verification.
+          </div>
+          <button
+            type="button"
+            className="button button--primary full"
+            disabled={!selectedRole}
+            onClick={onContinue}
+          >
+            Continue <Icon name="arrow" />
+          </button>
+          <Button variant="ghost" onClick={onLogout}>
+            Log out
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -788,14 +743,20 @@ const allocations = [
   { label: "Cash & Other", value: "$486K", pct: "11.2%", color: "gray" },
 ]
 
-function Dashboard({ setActive }: { setActive: (v: string) => void }) {
+function Dashboard({
+  setActive,
+  userName,
+}: {
+  setActive: (v: string) => void
+  userName: string
+}) {
   const [period, setPeriod] = useState("1Y")
   return (
     <div className="dashboard-content">
       <section className="welcome">
         <div>
           <span className="eyebrow">MONDAY, 12 MAY</span>
-          <div className="page-title">Good morning, Alex.</div>
+          <div className="page-title">Good morning, {userName}.</div>
           <div className="page-subtitle">
             Your wealth is moving in the right direction. Here’s what matters
             today.
@@ -2800,7 +2761,13 @@ function Plans() {
   )
 }
 
-function AIPanel({ onClose }: { onClose: () => void }) {
+function AIPanel({
+  onClose,
+  userName,
+}: {
+  onClose: () => void
+  userName: string
+}) {
   const { showToast } = useToast()
   const [message, setMessage] = useState("")
   const [isThinking, setIsThinking] = useState(false)
@@ -2811,7 +2778,7 @@ function AIPanel({ onClose }: { onClose: () => void }) {
   }>>([
     {
       sender: "ai",
-      text: "Good morning, Alex. I’ve reviewed your complete wealth picture. Your strongest opportunity today is a coordinated tax and portfolio action that could save approximately $18,400 while bringing risk back within your policy.",
+      text: `Good morning, ${userName}. I’ve reviewed your complete wealth picture. Your strongest opportunity today is a coordinated tax and portfolio action that could save approximately $18,400 while bringing risk back within your policy.`,
     },
   ])
 
@@ -3005,11 +2972,11 @@ function AIPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
-type AppScreen = "landing" | "login" | "roles" | "app"
+type AppScreen = "landing" | "onboarding" | "app"
 
 interface InitialAppState {
   screen: AppScreen
-  role: string
+  role: string | null
 }
 
 function getInitialAppState(): InitialAppState {
@@ -3028,7 +2995,7 @@ function getInitialAppState(): InitialAppState {
         const hashParams = new URLSearchParams(hashQuery)
         hashScreen = hashPath || hashParams.get("screen")
         hashRole = hashParams.get("role")
-      } else if (["landing", "login", "roles", "app"].includes(hash)) {
+      } else if (["landing", "onboarding", "app"].includes(hash)) {
         hashScreen = hash
       } else if (hash.startsWith("role=")) {
         hashRole = hash.replace("role=", "")
@@ -3039,7 +3006,9 @@ function getInitialAppState(): InitialAppState {
     const savedRole = localStorage.getItem("wealthsphere_role")
 
     const rawRole = urlRole || hashRole || savedRole
-    const validatedRole = getRoleConfig(rawRole).displayName
+    const validatedRole = rawRole
+      ? getRoleConfig(rawRole).displayName
+      : null
 
     const rawScreen = urlScreen || hashScreen || savedScreen
 
@@ -3047,27 +3016,80 @@ function getInitialAppState(): InitialAppState {
       return { screen: "app", role: validatedRole }
     }
 
-    if (rawScreen && ["landing", "login", "roles", "app"].includes(rawScreen)) {
+    if (rawScreen && ["landing", "onboarding", "app"].includes(rawScreen)) {
       return { screen: rawScreen as AppScreen, role: validatedRole }
     }
 
-    return { screen: "landing", role: validatedRole }
+    return { screen: "landing", role: null }
   } catch {
-    return { screen: "landing", role: "Individual" }
+    return { screen: "landing", role: null }
   }
 }
 
+function getRequestedRoleStorageKey(subject: string) {
+  return `wealthsphere_requested_role:${subject}`
+}
+
 export default function App() {
+  const { isAuthenticated, isLoading, loginWithRedirect, logout, user } =
+    useAuth0()
+  const authenticatedUserName =
+    user?.name || user?.nickname || user?.email || "Authenticated user"
+  const { showToast } = useToast()
   const initial = useMemo(() => getInitialAppState(), [])
   const [screen, setScreen] = useState<AppScreen>(initial.screen)
-  const [role, setRole] = useState<string>(initial.role)
+  const [role, setRole] = useState<string | null>(initial.role)
+  const [selectedRole, setSelectedRole] =
+    useState<RoleConfig["key"] | null>(null)
+  const [authInitialized, setAuthInitialized] = useState(false)
+
+  useEffect(() => {
+    if (isLoading) return
+
+    if (!isAuthenticated) {
+      setRole(null)
+      setScreen("landing")
+      setSelectedRole(null)
+      setAuthInitialized(true)
+      return
+    }
+
+    let savedRole: RoleConfig | undefined
+    try {
+      const savedPreference = user?.sub
+        ? localStorage.getItem(getRequestedRoleStorageKey(user.sub))
+        : null
+      savedRole = allRoleConfigs.find(
+        (config) =>
+          config.key === savedPreference ||
+          config.displayName === savedPreference,
+      )
+    } catch {
+      showToast({
+        title: "Preference unavailable",
+        message:
+          "Your saved profession preference could not be loaded. Please choose it again.",
+        tone: "warning",
+      })
+    }
+
+    if (savedRole) {
+      setRole(savedRole.displayName)
+      setScreen("app")
+    } else {
+      setRole(null)
+      setSelectedRole(null)
+      setScreen("onboarding")
+    }
+    setAuthInitialized(true)
+  }, [isAuthenticated, isLoading, showToast, user])
 
   // Synchronize state with URL and localStorage
   useEffect(() => {
+    if (!authInitialized) return
+
     try {
-      const validatedRoleConfig = getRoleConfig(role)
       localStorage.setItem("wealthsphere_screen", screen)
-      localStorage.setItem("wealthsphere_role", validatedRoleConfig.displayName)
 
       const url = new URL(window.location.href)
       if (screen === "landing") {
@@ -3082,60 +3104,178 @@ export default function App() {
         }
       } else {
         url.searchParams.set("screen", screen)
-        url.searchParams.set("role", validatedRoleConfig.key)
+        if (role) {
+          url.searchParams.set("role", getRoleConfig(role).key)
+        } else {
+          url.searchParams.delete("role")
+        }
       }
 
       window.history.replaceState(
-        { screen, role: validatedRoleConfig.key },
+        { screen, role: role ? getRoleConfig(role).key : null },
         "",
         url.toString(),
       )
     } catch {
       // Graceful fallback for restricted environments
     }
-  }, [screen, role])
+  }, [authInitialized, screen, role])
 
   // Handle browser back and forward navigation
   useEffect(() => {
     const handlePopState = () => {
-      const state = getInitialAppState()
-      setScreen(state.screen)
-      setRole(state.role)
+      if (!authInitialized) return
+
+      if (!isAuthenticated) {
+        setScreen("landing")
+        setRole(null)
+        return
+      }
+
+      let savedRole: RoleConfig | undefined
+      try {
+        const savedPreference = user?.sub
+          ? localStorage.getItem(getRequestedRoleStorageKey(user.sub))
+          : null
+        savedRole = allRoleConfigs.find(
+          (config) =>
+            config.key === savedPreference ||
+            config.displayName === savedPreference,
+        )
+      } catch {
+        showToast({
+          title: "Preference unavailable",
+          message:
+            "Your saved profession preference could not be loaded. Please choose it again.",
+          tone: "warning",
+        })
+      }
+
+      if (!savedRole) {
+        setSelectedRole(null)
+        setRole(null)
+        setScreen("onboarding")
+        return
+      }
+
+      setRole(savedRole.displayName)
+      setScreen("app")
     }
 
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
-  }, [])
+  }, [authInitialized, isAuthenticated, showToast, user])
 
-  if (screen === "landing")
+  if (isLoading || !authInitialized)
+    return (
+      <div className="auth-shell">
+        <div className="auth-main">
+          <div className="auth-card" role="status" aria-live="polite">
+            <Badge tone="success">SECURE ACCESS</Badge>
+            <div className="title">Checking your session</div>
+            <div className="subtext">
+              Please wait while we verify your authentication status.
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+
+  if (!isAuthenticated)
     return (
       <Landing
-        onStart={() => setScreen("roles")}
-        onLogin={() => setScreen("login")}
+        onStart={() =>
+          loginWithRedirect({
+            authorizationParams: { screen_hint: "signup" },
+          })
+        }
+        onLogin={() => loginWithRedirect()}
       />
     )
-  if (screen === "login" || screen === "roles")
+
+  if (screen === "onboarding" || !role)
     return (
-      <Auth
-        mode={screen}
-        initialRole={role}
-        onBack={() => setScreen("landing")}
-        onSuccess={(r) => {
-          const validated = getRoleConfig(r).displayName
-          setRole(validated)
+      <RoleOnboarding
+        userName={authenticatedUserName}
+        selectedRole={selectedRole}
+        onSelectRole={setSelectedRole}
+        onContinue={() => {
+          const requestedRole = allRoleConfigs.find(
+            (config) => config.key === selectedRole,
+          )
+          if (!requestedRole || !user?.sub) {
+            showToast({
+              title: "Unable to save preference",
+              message:
+                "Your profession selection could not be associated with your authenticated account.",
+              tone: "danger",
+            })
+            return
+          }
+
+          try {
+            localStorage.setItem(
+              getRequestedRoleStorageKey(user.sub),
+              requestedRole.key,
+            )
+          } catch {
+            showToast({
+              title: "Unable to save preference",
+              message:
+                "Your profession preference could not be saved. Please try again.",
+              tone: "danger",
+            })
+            return
+          }
+
+          setRole(requestedRole.displayName)
           setScreen("app")
         }}
+        onLogout={() =>
+          logout({ logoutParams: { returnTo: window.location.origin } })
+        }
       />
     )
+
   return (
     <AppShell
       currentRoleName={role}
+      userName={authenticatedUserName}
+      userEmail={user?.email || ""}
+      userId={user?.sub || "usr_active_session"}
       onRoleChange={(newRole) => {
         const validated = getRoleConfig(newRole).displayName
+        try {
+          if (user?.sub) {
+            localStorage.setItem(
+              getRequestedRoleStorageKey(user.sub),
+              getRoleConfig(validated).key,
+            )
+          }
+        } catch {
+          showToast({
+            title: "Preference unavailable",
+            message:
+              "Your profession preference could not be saved for your next visit.",
+            tone: "warning",
+          })
+        }
         setRole(validated)
       }}
-      onNavigateHome={() => setScreen("landing")}
-      renderModulePage={(roleKey, navId, navName, openAI, onNavigate) => {
+      onNavigateHome={() => setScreen("app")}
+      onLogout={() =>
+        logout({ logoutParams: { returnTo: window.location.origin } })
+      }
+      renderModulePage={(
+        roleKey,
+        navId,
+        navName,
+        openAI,
+        onNavigate,
+        userName,
+        userEmail,
+        userSession,
+      ) => {
         if (roleKey === "individual") {
           return (
             <IndividualModulePage
@@ -3143,6 +3283,9 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userName={userName}
+              userEmail={userEmail}
+              userSession={userSession}
             />
           )
         }
@@ -3152,6 +3295,7 @@ export default function App() {
               navId={navId}
               navName={navName}
               openAI={openAI}
+              userSession={userSession}
               onNavigate={onNavigate}
             />
           )
@@ -3163,6 +3307,8 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userName={userName}
+              userSession={userSession}
             />
           )
         }
@@ -3173,6 +3319,8 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userName={userName}
+              userSession={userSession}
             />
           )
         }
@@ -3182,6 +3330,7 @@ export default function App() {
               navId={navId}
               navName={navName}
               openAI={openAI}
+              userSession={userSession}
               onNavigate={onNavigate}
             />
           )
@@ -3192,7 +3341,9 @@ export default function App() {
               navId={navId}
               navName={navName}
               openAI={openAI}
+              userSession={userSession}
               onNavigate={onNavigate}
+              userName={userName}
             />
           )
         }
@@ -3203,6 +3354,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3212,6 +3364,7 @@ export default function App() {
               navId={navId}
               navName={navName}
               openAI={openAI}
+              userSession={userSession}
               onNavigate={onNavigate}
             />
           )
@@ -3223,6 +3376,8 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userName={userName}
+              userSession={userSession}
             />
           )
         }
@@ -3233,6 +3388,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3242,6 +3398,7 @@ export default function App() {
               navId={navId}
               navName={navName}
               openAI={openAI}
+              userSession={userSession}
               onNavigate={onNavigate}
             />
           )
@@ -3253,6 +3410,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3263,6 +3421,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3273,6 +3432,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3283,6 +3443,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3293,6 +3454,7 @@ export default function App() {
               navName={navName}
               openAI={openAI}
               onNavigate={onNavigate}
+              userSession={userSession}
             />
           )
         }
@@ -3306,7 +3468,12 @@ export default function App() {
           />
         )
       }}
-      renderAIPanel={(onClose) => <AIPanel onClose={onClose} />}
+      renderAIPanel={(onClose) => (
+        <AIPanel
+          onClose={onClose}
+          userName={authenticatedUserName}
+        />
+      )}
     />
   )
 }

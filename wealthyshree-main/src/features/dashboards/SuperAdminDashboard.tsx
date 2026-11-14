@@ -1,20 +1,23 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals/ExportModal"
+import { authorizePermission } from "../../config/roles"
 
 export interface SuperAdminDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function SuperAdminDashboard({
   roleConfig,
+  userSession,
   onNavigate,
   onOpenAI,
 }: SuperAdminDashboardProps) {
@@ -28,10 +31,57 @@ export function SuperAdminDashboard({
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false)
   const [showExportModal, setShowExportModal] = useState<boolean>(false)
   const [pendingActionTitle, setPendingActionTitle] = useState<string>("")
+  const [pendingActionPermission, setPendingActionPermission] =
+    useState<Permission | null>(null)
+  const permissionRequiredText = "This action requires verified permissions."
 
-  const triggerProtectedAction = (actionName: string) => {
+  const canPerform = (permission: Permission) =>
+    roleConfig.key === "super_admin" &&
+    userSession.activeRoleKey === "super_admin" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Action blocked",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const isCurrentUser = (id?: string, email?: string) =>
+    id === userSession.userId ||
+    (Boolean(email) &&
+      email?.trim().toLowerCase() === userSession.email.trim().toLowerCase())
+
+  const triggerProtectedAction = (
+    actionName: string,
+    permission: Permission,
+  ) => {
+    if (!canPerform(permission)) {
+      notifyUnauthorized()
+      return
+    }
+
     setPendingActionTitle(actionName)
+    setPendingActionPermission(permission)
     setShowSecurityModal(true)
+  }
+
+  const confirmProtectedAction = () => {
+    if (
+      !pendingActionPermission ||
+      !canPerform(pendingActionPermission)
+    ) {
+      notifyUnauthorized()
+      setShowSecurityModal(false)
+      setPendingActionPermission(null)
+      return
+    }
+
+    showToast({
+      title: "Zero-Trust Enforcement",
+      message: `Action "${pendingActionTitle}" requires production Root Hardware Security Token and quorum approval. No changes were made in this demo.`,
+      tone: "warning",
+    })
+    setShowSecurityModal(false)
+    setPendingActionPermission(null)
   }
 
   // 16 Role Distribution mock data
@@ -392,9 +442,26 @@ export function SuperAdminDashboard({
         <button
           type="button"
           className="button button--sm button--secondary"
-          onClick={() =>
-            triggerProtectedAction(`Manage User Permissions: ${row.name}`)
+          disabled={
+            !canPerform("manage:rbac_roles") ||
+            isCurrentUser(row.id, row.email)
           }
+          title={
+            !canPerform("manage:rbac_roles") ||
+            isCurrentUser(row.id, row.email)
+              ? permissionRequiredText
+              : undefined
+          }
+          onClick={() => {
+            if (isCurrentUser(row.id, row.email)) {
+              notifyUnauthorized()
+              return
+            }
+            triggerProtectedAction(
+              `Manage User Permissions: ${row.name}`,
+              "manage:rbac_roles",
+            )
+          }}
         >
           Manage
         </button>
@@ -427,8 +494,13 @@ export function SuperAdminDashboard({
           <button
             type="button"
             className="button button--primary"
+            disabled={!canPerform("manage:tenants")}
+            title={!canPerform("manage:tenants") ? permissionRequiredText : undefined}
             onClick={() =>
-              triggerProtectedAction("Provision Enterprise Organization")
+              triggerProtectedAction(
+                "Provision Enterprise Organization",
+                "manage:tenants",
+              )
             }
           >
             <Icon name="plus" size={16} />
@@ -437,8 +509,13 @@ export function SuperAdminDashboard({
           <button
             type="button"
             className="button button--secondary"
+            disabled={!canPerform("manage:rbac_roles")}
+            title={!canPerform("manage:rbac_roles") ? permissionRequiredText : undefined}
             onClick={() =>
-              triggerProtectedAction("Root Cryptographic MFA Verification")
+              triggerProtectedAction(
+                "Root Cryptographic MFA Verification",
+                "manage:rbac_roles",
+              )
             }
           >
             <Icon name="lock" size={16} />
@@ -523,15 +600,25 @@ export function SuperAdminDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
           if (act.id === "provision_tenant") {
-            triggerProtectedAction("Provision New Enterprise Organization")
+            triggerProtectedAction(
+              "Provision New Enterprise Organization",
+              "manage:tenants",
+            )
           } else if (act.id === "review_access_reqs") {
             setActiveTab("accessRequests")
           } else if (act.id === "adjust_ai_limits") {
-            triggerProtectedAction("Configure AI Safety & Token Guardrails")
+            triggerProtectedAction(
+              "Configure AI Safety & Token Guardrails",
+              "configure:ai_policies",
+            )
           } else if (act.id === "rotate_keys") {
-            triggerProtectedAction("Rotate Platform Master KMS Keys")
+            triggerProtectedAction(
+              "Rotate Platform Master KMS Keys",
+              "rotate:platform_keys",
+            )
           } else {
             onOpenAI()
           }
@@ -1011,14 +1098,29 @@ export function SuperAdminDashboard({
                       color: "var(--primary-dark)",
                       fontSize: "10.5px",
                       fontWeight: 600,
-                      cursor: "pointer",
+                      cursor: canPerform("manage:rbac_roles") ? "pointer" : "not-allowed",
                       padding: 0,
                     }}
-                    onClick={() =>
+                    disabled={
+                      !canPerform("manage:rbac_roles") ||
+                      name.toLowerCase().includes("super admin")
+                    }
+                    title={
+                      !canPerform("manage:rbac_roles") ||
+                      name.toLowerCase().includes("super admin")
+                        ? permissionRequiredText
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (name.toLowerCase().includes("super admin")) {
+                        notifyUnauthorized()
+                        return
+                      }
                       triggerProtectedAction(
                         `Configure Entitlements for Role: ${name}`,
+                        "manage:rbac_roles",
                       )
-                    }
+                    }}
                   >
                     Configure
                   </button>
@@ -1121,9 +1223,12 @@ export function SuperAdminDashboard({
                   <button
                     type="button"
                     className="button button--sm button--secondary"
+                    disabled={!canPerform("manage:tenants")}
+                    title={!canPerform("manage:tenants") ? permissionRequiredText : undefined}
                     onClick={() =>
                       triggerProtectedAction(
                         `Inspect Tenancy Enclave: ${org.name}`,
+                        "manage:tenants",
                       )
                     }
                   >
@@ -1247,20 +1352,43 @@ export function SuperAdminDashboard({
                     <button
                       type="button"
                       className="button button--sm button--primary"
-                      onClick={() =>
+                      disabled={
+                        !canPerform("manage:rbac_roles") ||
+                        isCurrentUser(undefined, req.user) ||
+                        req.requestedRole.toLowerCase().includes("super admin")
+                      }
+                      title={
+                        !canPerform("manage:rbac_roles") ||
+                        isCurrentUser(undefined, req.user) ||
+                        req.requestedRole.toLowerCase().includes("super admin")
+                          ? permissionRequiredText
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (
+                          isCurrentUser(undefined, req.user) ||
+                          req.requestedRole.toLowerCase().includes("super admin")
+                        ) {
+                          notifyUnauthorized()
+                          return
+                        }
                         triggerProtectedAction(
                           `Approve Role Request for ${req.user}`,
+                          "manage:rbac_roles",
                         )
-                      }
+                      }}
                     >
                       Authorize
                     </button>
                     <button
                       type="button"
                       className="button button--sm button--secondary"
+                      disabled={!canPerform("manage:rbac_roles")}
+                      title={!canPerform("manage:rbac_roles") ? permissionRequiredText : undefined}
                       onClick={() =>
                         triggerProtectedAction(
                           `Deny Role Request for ${req.user}`,
+                          "manage:rbac_roles",
                         )
                       }
                     >
@@ -1437,9 +1565,22 @@ export function SuperAdminDashboard({
           actionButton={{
             label: "Export Platform User Audit CSV",
             icon: "document",
-            onClick: () => setShowExportModal(true),
+            disabled: !canPerform("export:platform_users"),
+            disabledMessage: permissionRequiredText,
+            onClick: () => {
+              if (!canPerform("export:platform_users")) {
+                notifyUnauthorized()
+                return
+              }
+              setShowExportModal(true)
+            },
           }}
         />
+        {!canPerform("export:platform_users") && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </section>
 
       {/* 8. Root Administrative Security & Simulated Telemetry Disclaimer */}
@@ -1538,11 +1679,11 @@ export function SuperAdminDashboard({
             >
               Session:{" "}
               <code style={{ color: "var(--primary-dark)" }}>
-                usr_active_session
+                {userSession.userId}
               </code>{" "}
               · Verified Credentials:{" "}
               <code style={{ color: "var(--primary-dark)" }}>
-                ["individual"]
+                {JSON.stringify(userSession.verifiedRoleKeys)}
               </code>
             </div>
 
@@ -1556,31 +1697,47 @@ export function SuperAdminDashboard({
               <button
                 type="button"
                 className="button button--secondary"
-                onClick={() => setShowSecurityModal(false)}
+                onClick={() => {
+                  setShowSecurityModal(false)
+                  setPendingActionPermission(null)
+                }}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => {
-                  showToast({
-                    title: "Zero-Trust Enforcement",
-                    message: `Action "${pendingActionTitle}" requires production Root Hardware Security Token. Access denied in read-only demo mode.`,
-                    tone: "warning",
-                  })
-                  setShowSecurityModal(false)
-                }}
+                disabled={
+                  !pendingActionPermission ||
+                  !canPerform(pendingActionPermission)
+                }
+                title={
+                  !pendingActionPermission ||
+                  !canPerform(pendingActionPermission)
+                    ? permissionRequiredText
+                    : undefined
+                }
+                onClick={confirmProtectedAction}
               >
                 Verify Token (Simulate)
               </button>
             </div>
+            {(!pendingActionPermission ||
+              !canPerform(pendingActionPermission)) && (
+              <p className="action-restriction-notice" role="alert">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:platform_users"
+        requiredActiveRole="super_admin"
+        authorizationRequiredForAllFormats
+        authorizationDeniedMessage={permissionRequiredText}
         onClose={() => setShowExportModal(false)}
         title="Export Platform User Audit Directory"
         defaultFilename="platform_users_audit.csv"

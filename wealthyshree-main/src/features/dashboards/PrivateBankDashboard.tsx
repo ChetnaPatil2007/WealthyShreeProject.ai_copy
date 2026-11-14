@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,32 @@ import { ExportModal, ScheduleMeetingModal } from "../../components/modals"
 
 export interface PrivateBankDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function PrivateBankDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: PrivateBankDashboardProps) {
   const { showToast } = useToast()
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "private_bank" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canManagePrivateBankBook = hasPermission("manage:private_bank_book")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
   const [activeTab, setActiveTab] = useState<"requests" | "compliance">(
     "requests",
   )
@@ -268,12 +285,12 @@ export function PrivateBankDashboard({
             </span>
             <span>Managing $1.24B AUM Across 320 Ultra-HNW Families</span>
           </div>
-          <h1 className="hero-title">Jean-Paul Laurent</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Managing Director, UHNW Division · Banque Privée Sphere. Ultra-HNW
-            tiering, bespoke Lombard credit facilities, structured products,
-            fiduciary multi-currency treasury, and regulatory cross-border
-            surveillance.
+            Demo role: Managing Director, UHNW Division · Demo organization:
+            Banque Privée Sphere. Ultra-HNW tiering, bespoke Lombard credit
+            facilities, structured products, fiduciary multi-currency treasury,
+            and regulatory cross-border surveillance.
           </p>
         </div>
         <div className="hero-actions">
@@ -834,7 +851,17 @@ export function PrivateBankDashboard({
                   <button
                     type="button"
                     className="button button--sm button--secondary"
+                    disabled={!canManagePrivateBankBook}
+                    title={
+                      !canManagePrivateBankBook
+                        ? permissionRequiredText
+                        : undefined
+                    }
                     onClick={() => {
+                      if (!hasPermission("manage:private_bank_book")) {
+                        notifyUnauthorized()
+                        return
+                      }
                       setSelectedClientForMeeting(req.client)
                       showToast({
                         title: "Client Workflow Opened",
@@ -1077,6 +1104,8 @@ export function PrivateBankDashboard({
       {/* Interactive Modals */}
       <ScheduleMeetingModal
         isOpen={showMeetingModal}
+        isAuthorized={canManagePrivateBankBook}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowMeetingModal(false)}
         initialClient={selectedClientForMeeting}
         onMeetingScheduled={(m) => {
@@ -1090,6 +1119,7 @@ export function PrivateBankDashboard({
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:private_bank_book"
         onClose={() => setShowExportModal(false)}
         title="Export UHNW Division Client Portfolio & Credit Roster"
         defaultFilename="banque_privee_client_roster"

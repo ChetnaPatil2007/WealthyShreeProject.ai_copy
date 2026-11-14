@@ -6,12 +6,16 @@ import type { MockGoal } from "../../services/mockData"
 
 export interface CreateGoalModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  onUnauthorized?: () => void
   onClose: () => void
   onGoalAdded?: (goal: MockGoal) => void
 }
 
 export function CreateGoalModal({
   isOpen,
+  isAuthorized = false,
+  onUnauthorized,
   onClose,
   onGoalAdded,
 }: CreateGoalModalProps) {
@@ -47,6 +51,10 @@ export function CreateGoalModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAuthorized) {
+      onUnauthorized?.()
+      return
+    }
     if (!validate()) return
 
     setIsSubmitting(true)
@@ -106,6 +114,11 @@ export function CreateGoalModal({
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
+          {!isAuthorized && (
+            <div className="modal-info-callout" role="alert">
+              This action requires verified permissions.
+            </div>
+          )}
           <div className="form-group">
             <label htmlFor="goal-name" className="form-label">
               Goal Objective <span className="req">*</span>
@@ -120,7 +133,7 @@ export function CreateGoalModal({
                 setName(e.target.value)
                 if (errors.name) setErrors({ ...errors, name: "" })
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             />
             {errors.name && <span className="form-error">{errors.name}</span>}
           </div>
@@ -137,7 +150,7 @@ export function CreateGoalModal({
                 onChange={(e) =>
                   setCategory(e.target.value as MockGoal["category"])
                 }
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               >
                 <option value="Retirement">
                   Retirement & Financial Independence
@@ -167,7 +180,7 @@ export function CreateGoalModal({
                   if (errors.targetAmount)
                     setErrors({ ...errors, targetAmount: "" })
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               {errors.targetAmount && (
                 <span className="form-error">{errors.targetAmount}</span>
@@ -187,7 +200,7 @@ export function CreateGoalModal({
                 placeholder="e.g. 50,000 (optional)"
                 value={initialAmount}
                 onChange={(e) => setInitialAmount(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
             </div>
 
@@ -207,7 +220,7 @@ export function CreateGoalModal({
                   if (errors.targetDate)
                     setErrors({ ...errors, targetDate: "" })
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               {errors.targetDate && (
                 <span className="form-error">{errors.targetDate}</span>
@@ -235,7 +248,7 @@ export function CreateGoalModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               {isSubmitting ? (
                 <>

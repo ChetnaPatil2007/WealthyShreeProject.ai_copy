@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { ScheduleMeetingModal, ExportModal } from "../../components/modals"
 
 export interface WealthCoachDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function WealthCoachDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: WealthCoachDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "wealth_coach" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canManageCohorts = hasPermission("manage:coaching_cohorts")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"sessions" | "challenges">(
     "sessions",
   )
@@ -272,18 +296,25 @@ export function WealthCoachDashboard({
             </span>
             <span>Mentoring 72 Clients Across 6 Accountability Cohorts</span>
           </div>
-          <h1 className="hero-title">Elena Rostova, AFC®</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Master Financial Coach · Rostova Wealth Coaching. Financial
-            psychology, automated habit tracking, debt avalanche momentum,
-            weekly accountability cohorts, and life milestone roadmaps.
+            Demo role: Master Financial Coach · Demo organization: Rostova
+            Wealth Coaching. Financial psychology, automated habit tracking,
+            debt avalanche momentum, weekly accountability cohorts, and life
+            milestone roadmaps.
           </p>
         </div>
         <div className="hero-actions">
           <button
             type="button"
             className="button button--primary"
-            onClick={() => onNavigate("Coaching Sessions")}
+            disabled={!canManageCohorts}
+            title={!canManageCohorts ? permissionRequiredText : undefined}
+            onClick={() =>
+              runAuthorized("manage:coaching_cohorts", () =>
+                onNavigate("Coaching Sessions"),
+              )
+            }
           >
             <Icon name="calendar" size={16} />
             <span>Book Session</span>
@@ -297,6 +328,11 @@ export function WealthCoachDashboard({
             <span>AI Coach Assistant</span>
           </button>
         </div>
+        {!canManageCohorts && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </section>
 
       {/* 2. Seven Core Metric Cards */}
@@ -318,11 +354,23 @@ export function WealthCoachDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "schedule_session") onNavigate("Coaching Sessions")
-          else if (act.id === "assign_habit") onNavigate("Habit Tracking")
-          else if (act.id === "review_snowball") onNavigate("Financial Goals")
-          else onOpenAI()
+          if (act.id === "review_budget") {
+            onNavigate("Financial Goals")
+            return
+          }
+          const permission = act.requiredPermission
+          if (!permission) {
+            onOpenAI()
+            return
+          }
+          runAuthorized(permission, () => {
+            if (act.id === "schedule_session") onNavigate("Coaching Sessions")
+            else if (act.id === "assign_habit") onNavigate("Habit Tracking")
+            else if (act.id === "issue_badge") onNavigate("Financial Goals")
+            else onOpenAI()
+          })
         }}
       />
 
@@ -571,15 +619,21 @@ export function WealthCoachDashboard({
                   <button
                     type="button"
                     className="button button--secondary button--sm"
-                    onClick={() => {
-                      setSelectedClientForSession(cs.client)
-                      showToast({
-                        title: "Whiteboard Session",
-                        message: `Connecting to interactive coaching whiteboard session for ${cs.client}...`,
-                        tone: "info",
+                    disabled={!canManageCohorts}
+                    title={
+                      !canManageCohorts ? permissionRequiredText : undefined
+                    }
+                    onClick={() =>
+                      runAuthorized("manage:coaching_cohorts", () => {
+                        setSelectedClientForSession(cs.client)
+                        showToast({
+                          title: "Whiteboard Session",
+                          message: `Connecting to interactive coaching whiteboard session for ${cs.client}...`,
+                          tone: "info",
+                        })
+                        setShowScheduleModal(true)
                       })
-                      setShowScheduleModal(true)
-                    }}
+                    }
                   >
                     Join Call
                   </button>
@@ -634,6 +688,11 @@ export function WealthCoachDashboard({
               </div>
             ))}
           </div>
+        )}
+        {!canManageCohorts && activeTab === "sessions" && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -743,19 +802,24 @@ export function WealthCoachDashboard({
       {/* Interactive Modals */}
       <ScheduleMeetingModal
         isOpen={showScheduleModal}
+        isAuthorized={canManageCohorts}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowScheduleModal(false)}
         initialClient={selectedClientForSession}
         onMeetingScheduled={(m) => {
-          showToast({
-            title: "Coaching Session Scheduled",
-            message: `Confirmed coaching session with ${m.client} on ${m.date} at ${m.time}.`,
-            tone: "success",
-          })
+          runAuthorized("manage:coaching_cohorts", () =>
+            showToast({
+              title: "Coaching Session Scheduled",
+              message: `Confirmed coaching session with ${m.client} on ${m.date} at ${m.time}.`,
+              tone: "success",
+            }),
+          )
         }}
       />
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:coaching_cohorts"
         onClose={() => setShowExportModal(false)}
         title="Export Client Behavioral Habits & Financial Wellness Roster"
         defaultFilename="wealthsphere_wealth_coach_roster"

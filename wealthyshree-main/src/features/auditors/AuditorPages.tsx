@@ -4,12 +4,16 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal, EvidenceVerifyModal } from "../../components/modals"
+import type { EvidenceVerificationStatus } from "../../components/modals/EvidenceVerifyModal"
+import { authorizePermission, ROLE_CONFIGURATIONS } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface AuditorPageProps {
   navId: string
   navName: string
   openAI: () => void
   onNavigate?: (target: string) => void
+  userSession: UserSession
 }
 
 interface AuditEngagementItem {
@@ -61,8 +65,40 @@ export function AuditorModulePage({
   navName,
   openAI,
   onNavigate,
+  userSession,
 }: AuditorPageProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "auditors" &&
+    authorizePermission(
+      userSession,
+      permission,
+      ROLE_CONFIGURATIONS.auditors,
+    ).allowed
+  const canVerifyEvidence = hasPermission("certify:compliance_reports")
+  const canFlagExceptions = hasPermission("flag:control_exceptions")
+  const canCertifyReports = hasPermission("certify:compliance_reports")
+  const canReadAuditTrail = hasPermission("read_only:audit_trail")
+  const canExportReports = hasPermission("export:audit_reports")
+  const canWriteSettings = hasPermission("write:auditor_settings")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
+  const isEvidenceStatusAuthorized = (status: EvidenceVerificationStatus) =>
+    canVerifyEvidence &&
+    (status !== "exception" || canFlagExceptions)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showVerifyModal, setShowVerifyModal] = useState(false)
   const [selectedEvidence, setSelectedEvidence] = useState<{
@@ -259,25 +295,59 @@ export function AuditorModulePage({
   ])
 
   const handleOpenVerifyModal = (ev: EvidenceItem) => {
-    setSelectedEvidence({
-      id: ev.id,
-      title: ev.title,
-      entity: ev.entity,
+    runAuthorized("certify:compliance_reports", () => {
+      setSelectedEvidence({
+        id: ev.id,
+        title: ev.title,
+        entity: ev.entity,
+      })
+      setShowVerifyModal(true)
     })
-    setShowVerifyModal(true)
   }
 
   const handleSignOffWorkpaper = (wpId: string) => {
-    setReviewQueue((prev) =>
-      prev.map((w) =>
-        w.id === wpId ? { ...w, status: "Signed Off & Attested" } : w,
-      ),
-    )
-    showToast({
-      title: "Audit Workpaper Attested",
-      message: "Lead Partner digital signature applied with cryptographic timestamp seal.",
-      tone: "success",
+    runAuthorized("certify:compliance_reports", () => {
+      setReviewQueue((prev) =>
+        prev.map((w) =>
+          w.id === wpId ? { ...w, status: "Signed Off & Attested" } : w,
+        ),
+      )
+      showToast({
+        title: "Audit Workpaper Attested",
+        message: "Lead Partner digital signature applied with cryptographic timestamp seal.",
+        tone: "success",
+      })
     })
+  }
+
+  const handleDraftOpinion = () => {
+    runAuthorized("certify:compliance_reports", () =>
+      showToast({
+        title: "Opinion Letter Drafted",
+        message: "Independent Auditor's Unqualified (Clean) Opinion letter prepared for engagement.",
+        tone: "success",
+      }),
+    )
+  }
+
+  const handleValidateAuditTrail = () => {
+    runAuthorized("read_only:audit_trail", () =>
+      showToast({
+        title: "Cryptographic Chain Verified",
+        message: "All 18,490 chronological log blocks verified against master KMS root.",
+        tone: "success",
+      }),
+    )
+  }
+
+  const handleSaveSettings = () => {
+    runAuthorized("write:auditor_settings", () =>
+      showToast({
+        title: "Settings Saved",
+        message: "Audit methodology standards and retention policies updated.",
+        tone: "success",
+      }),
+    )
   }
 
   /* =========================================================================
@@ -318,7 +388,13 @@ export function AuditorModulePage({
           <button
             className="btn btn-outline"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
-            onClick={() => setShowExportModal(true)}
+            disabled={!canExportReports}
+            title={!canExportReports ? permissionRequiredText : undefined}
+            onClick={() =>
+              runAuthorized("export:audit_reports", () =>
+                setShowExportModal(true),
+              )
+            }
           >
             <Icon name="document" size={15} />
             Export Audit Papers
@@ -326,19 +402,20 @@ export function AuditorModulePage({
           <button
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
-            onClick={() => {
-              showToast({
-                title: "Opinion Letter Drafted",
-                message: "Independent Auditor's Unqualified (Clean) Opinion letter prepared for engagement.",
-                tone: "success",
-              })
-            }}
+            disabled={!canCertifyReports}
+            title={!canCertifyReports ? permissionRequiredText : undefined}
+            onClick={handleDraftOpinion}
           >
             <Icon name="check" size={15} />
             Draft Opinion Letter
           </button>
         </div>
       </div>
+      {(!canExportReports || !canCertifyReports) && (
+        <p className="action-restriction-notice" role="note">
+          {permissionRequiredText}
+        </p>
+      )}
 
       {/* 1. AUDIT ENGAGEMENTS */}
       {navId === "audit_engagements" && (
@@ -625,6 +702,12 @@ export function AuditorModulePage({
                         <button
                           className="btn btn-primary"
                           style={{ fontSize: "11px", padding: "4px 8px" }}
+                          disabled={!canVerifyEvidence}
+                          title={
+                            !canVerifyEvidence
+                              ? permissionRequiredText
+                              : undefined
+                          }
                           onClick={() => handleOpenVerifyModal(row)}
                         >
                           Verify Evidence
@@ -635,6 +718,11 @@ export function AuditorModulePage({
                 },
               ]}
             />
+            {!canVerifyEvidence && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -690,6 +778,12 @@ export function AuditorModulePage({
                         <button
                           className="btn btn-primary"
                           style={{ fontSize: "11px", padding: "4px 8px" }}
+                          disabled={!canCertifyReports}
+                          title={
+                            !canCertifyReports
+                              ? permissionRequiredText
+                              : undefined
+                          }
                           onClick={() => handleSignOffWorkpaper(row.id)}
                         >
                           Partner Sign-Off
@@ -700,6 +794,11 @@ export function AuditorModulePage({
                 },
               ]}
             />
+            {!canCertifyReports && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -901,18 +1000,19 @@ export function AuditorModulePage({
               <button
                 className="btn btn-outline"
                 style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
-                onClick={() => {
-                  showToast({
-                    title: "Cryptographic Chain Verified",
-                    message: "All 18,490 chronological log blocks verified against master KMS root.",
-                    tone: "success",
-                  })
-                }}
+                disabled={!canReadAuditTrail}
+                title={!canReadAuditTrail ? permissionRequiredText : undefined}
+                onClick={handleValidateAuditTrail}
               >
                 <Icon name="shield" size={14} />
                 Validate Blockchain Chain
               </button>
             </div>
+            {!canReadAuditTrail && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
 
             <DataTable
               title="Audit Logs"
@@ -1002,7 +1102,13 @@ export function AuditorModulePage({
               <button
                 className="btn btn-primary"
                 style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
-                onClick={() => setShowExportModal(true)}
+                disabled={!canExportReports}
+                title={!canExportReports ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("export:audit_reports", () =>
+                    setShowExportModal(true),
+                  )
+                }
               >
                 <Icon name="document" size={14} />
                 Export Formal Audit Report
@@ -1057,6 +1163,11 @@ export function AuditorModulePage({
                 },
               ]}
             />
+            {!canExportReports && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1078,7 +1189,13 @@ export function AuditorModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Auditing Standards Framework
                   </label>
-                  <select className="select" defaultValue="pcaob" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="pcaob"
+                    style={{ width: "100%" }}
+                    disabled={!canWriteSettings}
+                    title={!canWriteSettings ? permissionRequiredText : undefined}
+                  >
                     <option value="aicpa">AICPA Statements on Auditing Standards (SAS)</option>
                     <option value="pcaob">PCAOB Auditing Standards (AS 2201 / SOX 404) (Current)</option>
                     <option value="iaasb">IAASB International Standards on Auditing (ISA)</option>
@@ -1089,7 +1206,13 @@ export function AuditorModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Workpaper Statutory Retention Period
                   </label>
-                  <select className="select" defaultValue="7" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="7"
+                    style={{ width: "100%" }}
+                    disabled={!canWriteSettings}
+                    title={!canWriteSettings ? permissionRequiredText : undefined}
+                  >
                     <option value="5">5 Years (Standard)</option>
                     <option value="7">7 Years (Sarbanes-Oxley Statutory) (Current)</option>
                     <option value="10">10 Years (Permanent Legal Hold)</option>
@@ -1099,16 +1222,17 @@ export function AuditorModulePage({
                 <button
                   className="btn btn-outline"
                   style={{ marginTop: "8px", fontSize: "12px" }}
-                  onClick={() => {
-                    showToast({
-                      title: "Settings Saved",
-                      message: "Audit methodology standards and retention policies updated.",
-                      tone: "success",
-                    })
-                  }}
+                  disabled={!canWriteSettings}
+                  title={!canWriteSettings ? permissionRequiredText : undefined}
+                  onClick={handleSaveSettings}
                 >
                   Save Methodology Settings
                 </button>
+                {!canWriteSettings && (
+                  <p className="action-restriction-notice" role="note">
+                    {permissionRequiredText}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1153,11 +1277,17 @@ export function AuditorModulePage({
       {/* Evidence Verification Modal */}
       <EvidenceVerifyModal
         isOpen={showVerifyModal}
+        authorizeStatus={isEvidenceStatusAuthorized}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowVerifyModal(false)}
         evidenceTitle={selectedEvidence.title}
         entity={selectedEvidence.entity}
         evidenceId={selectedEvidence.id}
-        onVerified={() => {
+        onVerified={(status) => {
+          if (!isEvidenceStatusAuthorized(status)) {
+            notifyUnauthorized()
+            return
+          }
           setEvidenceList((prev) =>
             prev.map((e) =>
               e.id === selectedEvidence.id
@@ -1175,6 +1305,7 @@ export function AuditorModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:audit_reports"
         onClose={() => setShowExportModal(false)}
         title="Export Independent Audit Working Papers"
         defaultFilename="Independent_Audit_Working_Papers"

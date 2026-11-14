@@ -1,5 +1,6 @@
 import { useState } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -13,16 +14,44 @@ import type { MockGoal, MockClient } from "../../services/mockData"
 
 export interface FamilyDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function FamilyDashboard({
   roleConfig,
+  userSession,
   onNavigate,
   onOpenAI,
 }: FamilyDashboardProps) {
   const { showToast } = useToast()
+  const memberAuthorization = authorizePermission(
+    userSession,
+    "manage:family_members",
+    roleConfig,
+  )
+  const familyGroupAuthorization = authorizePermission(
+    userSession,
+    "write:family_group",
+    roleConfig,
+  )
+  const runAuthorizedAction = (
+    permission: Permission,
+    action: () => void,
+  ) => {
+    if (!authorizePermission(userSession, permission, roleConfig).allowed) {
+      showToast({
+        title: "Access Restricted",
+        message: "This action requires verified permissions.",
+        tone: "warning",
+      })
+      return false
+    }
+
+    action()
+    return true
+  }
   const [activeTab, setActiveTab] = useState<"tree" | "members">("tree")
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [showGoalModal, setShowGoalModal] = useState(false)
@@ -211,13 +240,29 @@ export function FamilyDashboard({
           <button
             type="button"
             className="button button--primary header-primary-btn"
-            onClick={() => setShowInviteModal(true)}
+            onClick={() =>
+              runAuthorizedAction("manage:family_members", () =>
+                setShowInviteModal(true),
+              )
+            }
+            disabled={!memberAuthorization.allowed}
+            title={
+              memberAuthorization.allowed
+                ? undefined
+                : "This action requires verified permissions."
+            }
           >
             <Icon name="plus" size={16} />
             <span>Invite Member</span>
           </button>
         </div>
       </section>
+      {(!memberAuthorization.allowed ||
+        !familyGroupAuthorization.allowed) && (
+        <p className="action-restriction-notice" role="note">
+          This action requires verified permissions.
+        </p>
+      )}
 
       {/* 2. Key Family Metrics */}
       <section className="metric-grid" aria-label="Family Wealth KPIs">
@@ -282,7 +327,14 @@ export function FamilyDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(action) => {
+          if (
+            action.requiredPermission &&
+            !runAuthorizedAction(action.requiredPermission, () => {})
+          ) {
+            return
+          }
           if (action.id === "update_tree") {
             showToast({
               title: "Family Wealth Tree",
@@ -593,7 +645,17 @@ export function FamilyDashboard({
           <button
             type="button"
             className="button button--secondary button--sm"
-            onClick={() => setShowGoalModal(true)}
+            onClick={() =>
+              runAuthorizedAction("write:family_group", () =>
+                setShowGoalModal(true),
+              )
+            }
+            disabled={!familyGroupAuthorization.allowed}
+            title={
+              familyGroupAuthorization.allowed
+                ? undefined
+                : "This action requires verified permissions."
+            }
           >
             <Icon name="plus" size={14} />
             <span>Add Family Goal</span>
@@ -651,67 +713,80 @@ export function FamilyDashboard({
 
       <OnboardClientModal
         isOpen={showInviteModal}
+        isAuthorized={memberAuthorization.allowed}
+        onUnauthorized={() =>
+          runAuthorizedAction("manage:family_members", () => {})
+        }
         onClose={() => setShowInviteModal(false)}
         onClientCreated={(client: MockClient) => {
-          setMembersList((prev) => [
-            {
-              id: `m_${Date.now()}`,
-              name: client.name,
-              role: "Family Member / Beneficiary",
-              generation: "Next-Gen",
-              initials:
-                client.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .toUpperCase()
-                  .slice(0, 2) || "FM",
-              status: "Invited",
-              contribution: client.aum
-                ? `$${client.aum.toLocaleString()}`
-                : "$0",
-              access: "View Restricted",
-            },
-            ...prev,
-          ])
-          showToast({
-            title: "Family Member Invited",
-            message: `Invitation dispatched to ${client.name} with restricted beneficiary dashboard access.`,
-            tone: "success",
+          runAuthorizedAction("manage:family_members", () => {
+            setMembersList((prev) => [
+              {
+                id: `m_${Date.now()}`,
+                name: client.name,
+                role: "Family Member / Beneficiary",
+                generation: "Next-Gen",
+                initials:
+                  client.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2) || "FM",
+                status: "Invited",
+                contribution: client.aum
+                  ? `$${client.aum.toLocaleString()}`
+                  : "$0",
+                access: "View Restricted",
+              },
+              ...prev,
+            ])
+            showToast({
+              title: "Family Member Invited",
+              message: `Invitation dispatched to ${client.name} with restricted beneficiary dashboard access.`,
+              tone: "success",
+            })
           })
         }}
       />
 
       <CreateGoalModal
         isOpen={showGoalModal}
+        isAuthorized={familyGroupAuthorization.allowed}
+        onUnauthorized={() =>
+          runAuthorizedAction("write:family_group", () => {})
+        }
         onClose={() => setShowGoalModal(false)}
         onGoalAdded={(goal: MockGoal) => {
-          setGoalsList((prev) => [
-            {
-              id: goal.id,
-              name: goal.name,
-              category: goal.category,
-              current: `$${goal.currentAmount.toLocaleString()}`,
-              target: `$${goal.targetAmount.toLocaleString()}`,
-              pct: Math.min(
-                100,
-                Math.round((goal.currentAmount / goal.targetAmount) * 100),
-              ),
-              deadline: goal.targetDate,
-              status: "On Track",
-            },
-            ...prev,
-          ])
-          showToast({
-            title: "Family Goal Created",
-            message: `Milestone "${goal.name}" created with target $${goal.targetAmount.toLocaleString()}.`,
-            tone: "success",
+          runAuthorizedAction("write:family_group", () => {
+            setGoalsList((prev) => [
+              {
+                id: goal.id,
+                name: goal.name,
+                category: goal.category,
+                current: `$${goal.currentAmount.toLocaleString()}`,
+                target: `$${goal.targetAmount.toLocaleString()}`,
+                pct: Math.min(
+                  100,
+                  Math.round((goal.currentAmount / goal.targetAmount) * 100),
+                ),
+                deadline: goal.targetDate,
+                status: "On Track",
+              },
+              ...prev,
+            ])
+            showToast({
+              title: "Family Goal Created",
+              message: `Milestone "${goal.name}" created with target $${goal.targetAmount.toLocaleString()}.`,
+              tone: "success",
+            })
           })
         }}
       />
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:family_group"
         onClose={() => setShowExportModal(false)}
         title="Export Family Trust Census"
         defaultFilename="family_trust_census.csv"

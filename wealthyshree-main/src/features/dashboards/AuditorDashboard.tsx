@@ -1,24 +1,71 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { EvidenceVerifyModal, ExportModal } from "../../components/modals"
+import type { EvidenceVerificationStatus } from "../../components/modals/EvidenceVerifyModal"
 
 export interface AuditorDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function AuditorDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: AuditorDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    roleConfig.key === "auditors" &&
+    userSession.activeRoleKey === "auditors" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canVerifyEvidence = hasPermission("certify:compliance_reports")
+  const canFlagExceptions = hasPermission("flag:control_exceptions")
+  const canExportReports = hasPermission("export:audit_reports")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
+  const isEvidenceStatusAuthorized = (status: EvidenceVerificationStatus) =>
+    canVerifyEvidence &&
+    (status !== "exception" || canFlagExceptions)
+
+  const handleOpenEvidenceVerification = (item: {
+    id: string
+    description: string
+    entity: string
+  }) => {
+    runAuthorized("certify:compliance_reports", () => {
+      setSelectedEvidence({
+        id: item.id,
+        title: item.description,
+        entity: item.entity,
+      })
+      setShowVerifyModal(true)
+    })
+  }
+
   const [activeTab, setActiveTab] = useState<"evidence" | "findings">(
     "evidence",
   )
@@ -295,12 +342,12 @@ export function AuditorDashboard({
               AICPA & IIA PROFESSIONAL STANDARDS · 18 Active Engagements
             </span>
           </div>
-          <h1 className="hero-title">Teresa Bradley, CIA, CISA</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Lead Independent Audit Partner · Independent Audit Assurance Desk.
-            Audit engagements, financial records verification, immutable
-            evidence repository, review queue, findings resolution, and
-            tamper-evident audit trails.
+            Demo role: Lead Independent Audit Partner · Demo organization:
+            Independent Audit Assurance Desk. Audit engagements, financial
+            records verification, immutable evidence repository, review queue,
+            findings resolution, and tamper-evident audit trails.
           </p>
         </div>
         <div className="hero-actions">
@@ -342,12 +389,15 @@ export function AuditorDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
           if (act.id === "request_evidence") onNavigate("Evidence Repository")
           else if (act.id === "signoff_workpaper") onNavigate("Review Queue")
           else if (act.id === "log_finding") onNavigate("Findings")
           else if (act.id === "opinion_letter") {
-            setShowExportModal(true)
+            runAuthorized("export:audit_reports", () =>
+              setShowExportModal(true),
+            )
           } else onOpenAI()
         }}
       />
@@ -717,14 +767,13 @@ export function AuditorDashboard({
                   <button
                     type="button"
                     className="button button--sm button--secondary"
-                    onClick={() => {
-                      setSelectedEvidence({
-                        id: item.id,
-                        title: item.description,
-                        entity: item.entity,
-                      })
-                      setShowVerifyModal(true)
-                    }}
+                    disabled={!canVerifyEvidence}
+                    title={
+                      !canVerifyEvidence
+                        ? permissionRequiredText
+                        : undefined
+                    }
+                    onClick={() => handleOpenEvidenceVerification(item)}
                   >
                     Verify Hash
                   </button>
@@ -841,12 +890,20 @@ export function AuditorDashboard({
                   <button
                     type="button"
                     className="button button--sm button--primary"
+                    disabled={!canFlagExceptions}
+                    title={
+                      !canFlagExceptions
+                        ? permissionRequiredText
+                        : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Remediation Tracking Docket",
-                        message: `Opening corrective action plan and remediation docket for ${fnd.id} (${fnd.title}).`,
-                        tone: "info",
-                      })
+                      runAuthorized("flag:control_exceptions", () =>
+                        showToast({
+                          title: "Remediation Tracking Docket",
+                          message: `Opening corrective action plan and remediation docket for ${fnd.id} (${fnd.title}).`,
+                          tone: "info",
+                        }),
+                      )
                     }
                   >
                     Sign Remediation
@@ -855,6 +912,16 @@ export function AuditorDashboard({
               </div>
             ))}
           </div>
+        )}
+        {activeTab === "evidence" && !canVerifyEvidence && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
+        {activeTab === "findings" && !canFlagExceptions && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -946,9 +1013,18 @@ export function AuditorDashboard({
           actionButton={{
             label: "Export Independent Auditor Opinion",
             icon: "document",
-            onClick: () => setShowExportModal(true),
+            disabled: !canExportReports,
+            onClick: () =>
+              runAuthorized("export:audit_reports", () =>
+                setShowExportModal(true),
+              ),
           }}
         />
+        {!canExportReports && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </section>
 
       {/* 7. Independent Attestation & Professional Standards Disclaimer Banner */}
@@ -967,11 +1043,17 @@ export function AuditorDashboard({
       {/* Interactive Modals */}
       <EvidenceVerifyModal
         isOpen={showVerifyModal}
+        authorizeStatus={isEvidenceStatusAuthorized}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowVerifyModal(false)}
         evidenceId={selectedEvidence.id}
         evidenceTitle={selectedEvidence.title}
         entity={selectedEvidence.entity}
-        onVerified={() => {
+        onVerified={(status) => {
+          if (!isEvidenceStatusAuthorized(status)) {
+            notifyUnauthorized()
+            return
+          }
           showToast({
             title: "Evidence Seal Verified",
             message: `Cryptographic SHA-256 Merkle root seal attested for ${selectedEvidence.id}.`,
@@ -982,6 +1064,7 @@ export function AuditorDashboard({
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:audit_reports"
         onClose={() => setShowExportModal(false)}
         title="Export Independent Auditor Opinion Attestation Report"
         defaultFilename="independent_auditor_opinion_report"

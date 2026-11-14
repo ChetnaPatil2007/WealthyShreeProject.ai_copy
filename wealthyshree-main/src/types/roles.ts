@@ -15,7 +15,7 @@ export type RoleDisplayName = "Individual" | "Family" | "Student" | "Financial A
 export type RoleCategory = "Personal" | "Professional" | "Institutional" | "Governance"
 
 /** Granular permissions system for zero-trust authorization */
-export type Permission = "read:own_profile" | "write:own_profile" | "read:own_assets" | "write:own_assets" | "read:family_group" | "write:family_group" | "manage:family_members" | "read:student_budget" | "write:student_budget" | "read:student_loans" | "read:client_roster" | "write:client_roster" | "propose:trades" | "execute:trades" | "conduct:statutory_audit" | "sign:audit_reports" | "read:tax_scenarios" | "file:tax_returns" | "read:insurance_policies" | "issue:insurance_quotes" | "manage:coaching_cohorts" | "assign:client_milestones" | "read:family_office_entities" | "approve:capital_calls" | "manage:private_bank_book" | "underwrite:credit_lines" | "read:workforce_wellness" | "manage:equity_plans" | "read:endowment_portfolio" | "approve:scholarship_disbursements" | "view:sovereign_aggregates" | "audit:public_funds" | "read_only:audit_trail" | "flag:control_exceptions" | "certify:compliance_reports" | "manage:tenants" | "manage:rbac_roles" | "configure:ai_policies" | "view:system_telemetry" // Personal & Family // Professional Advisory & Accounting // Institutional & Enterprise // Audit & Administration
+export type Permission = "read:own_profile" | "write:own_profile" | "read:own_assets" | "write:own_assets" | "export:own_assets" | "read:family_group" | "write:family_group" | "export:family_group" | "manage:family_members" | "read:student_budget" | "write:student_budget" | "export:student_budget" | "read:student_loans" | "write:student_education" | "export:student_loans" | "read:client_roster" | "write:client_roster" | "export:client_roster" | "propose:trades" | "execute:trades" | "export:investment_portfolios" | "conduct:statutory_audit" | "export:statutory_audit" | "sign:audit_reports" | "export:audit_reports" | "read:tax_scenarios" | "write:tax_scenarios" | "file:tax_returns" | "export:tax_returns" | "read:insurance_policies" | "issue:insurance_quotes" | "submit:insurance_claims" | "export:insurance_policies" | "manage:coaching_cohorts" | "assign:client_milestones" | "export:coaching_cohorts" | "read:family_office_entities" | "approve:capital_calls" | "export:family_office_entities" | "manage:private_bank_book" | "underwrite:credit_lines" | "execute:wire_transfers" | "export:private_bank_book" | "read:workforce_wellness" | "manage:workforce_wellness" | "manage:equity_plans" | "export:workforce_wellness" | "read:endowment_portfolio" | "approve:scholarship_disbursements" | "export:scholarship_disbursements" | "export:education_reports" | "manage:campus_events" | "issue:academic_credentials" | "write:university_settings" | "view:sovereign_aggregates" | "audit:public_funds" | "manage:public_programs" | "write:government_settings" | "export:public_funds" | "read_only:audit_trail" | "flag:control_exceptions" | "certify:compliance_reports" | "write:auditor_settings" | "manage:tenants" | "manage:rbac_roles" | "configure:ai_policies" | "configure:platform" | "rotate:platform_keys" | "view:system_telemetry" | "export:system_telemetry" | "export:platform_users" // Personal & Family // Professional Advisory & Accounting // Institutional & Enterprise // Audit & Administration
 
 export interface RoleMetric {
   id: string
@@ -80,7 +80,7 @@ export interface RoleConfig {
   intendedFeatures: RoleFeature[]
   /** Permissions that this role is intended to have once fully verified */
   intendedPermissions: Permission[]
-  /** Permissions granted by default in unverified/preview mode (strictly minimal) */
+  /** Read-only permissions designated as safe defaults; frontend sessions do not apply them automatically */
   defaultGrantedPermissions: Permission[]
   /** Security verification requirements (e.g. license, 2FA, institutional SSO) */
   securityRequirement: string
@@ -108,4 +108,3 @@ export interface AuthorizationResult {
 
 /** Unique page key combining role key and navigation item ID (e.g. 'family:investments') */
 export type PageKey = `${RoleKey}:${string}`
-

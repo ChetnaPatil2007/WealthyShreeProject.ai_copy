@@ -4,11 +4,14 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { RebalanceModal, ExportModal } from "../../components/modals"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface InvestmentPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -39,9 +42,29 @@ export function InvestmentModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: InvestmentPageProps) {
   const { showToast } = useToast()
+  const investmentRoleConfig = getRoleConfig("investment_manager")
+  const hasPermission = (permission: Permission) =>
+    authorizePermission(userSession, permission, investmentRoleConfig).allowed
+  const canProposeTrades = hasPermission("propose:trades")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // State
   const [showRebalanceModal, setShowRebalanceModal] = useState(false)
@@ -145,7 +168,13 @@ export function InvestmentModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowRebalanceModal(true)}
+                disabled={!canProposeTrades}
+                title={!canProposeTrades ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("propose:trades", () =>
+                    setShowRebalanceModal(true),
+                  )
+                }
               >
                 <Icon name="activity" size={16} />
                 <span>Propose Portfolio Rebalance</span>
@@ -269,20 +298,26 @@ export function InvestmentModulePage({
         {showRebalanceModal && (
           <RebalanceModal
             isOpen={showRebalanceModal}
+            isAuthorized={canProposeTrades}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowRebalanceModal(false)}
-            onRebalanceComplete={() => {
-              setShowRebalanceModal(false)
-              showToast({
-                title: "Rebalance Orders Proposed (Simulated)",
-                message: "Generated 4 simulated rebalance trade allocations awaiting CIO authorization.",
-                tone: "success",
+            onRebalanceComplete={() =>
+              runAuthorized("propose:trades", () => {
+                setShowRebalanceModal(false)
+                showToast({
+                  title: "Rebalance Orders Proposed (Simulated)",
+                  message:
+                    "Generated 4 simulated rebalance trade allocations awaiting CIO authorization.",
+                  tone: "success",
+                })
               })
-            }}
+            }
           />
         )}
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:investment_portfolios"
             onClose={() => setShowExportModal(false)}
             headers={["Mandate", "Strategy", "AUM", "YTD Return", "Alpha", "Sharpe", "Status"]}
             data={portfolios.map((p) => [p.name, p.strategy, `$${p.aum.toLocaleString()}`, `+${p.ytdReturn}%`, `+${p.benchmarkAlpha}%`, p.sharpeRatio, p.status])}
@@ -311,18 +346,28 @@ export function InvestmentModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canProposeTrades}
+                title={!canProposeTrades ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Tactical Weights Updated (Simulated)",
-                    message: "Adjusted tactical fixed income underweight to +1.5% Treasuries.",
-                    tone: "success",
-                  })
+                  runAuthorized("propose:trades", () =>
+                    showToast({
+                      title: "Tactical Weights Updated (Simulated)",
+                      message:
+                        "Adjusted tactical fixed income underweight to +1.5% Treasuries.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="trending" size={16} />
                 <span>Apply Tactical Overlays</span>
               </button>
             </div>
+            {!canProposeTrades && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Equities Drift</span>
@@ -377,18 +422,28 @@ export function InvestmentModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canProposeTrades}
+                title={!canProposeTrades ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Concentration Alert",
-                    message: "NVDA holding is at 7.9% of fund. Max IPS constraint is 7.0%. Proposing simulated trim.",
-                    tone: "warning",
-                  })
+                  runAuthorized("propose:trades", () =>
+                    showToast({
+                      title: "Concentration Alert",
+                      message:
+                        "NVDA holding is at 7.9% of fund. Max IPS constraint is 7.0%. Proposing simulated trim.",
+                      tone: "warning",
+                    }),
+                  )
                 }
               >
                 <Icon name="alert" size={16} />
                 <span>Check Single-Stock Caps</span>
               </button>
             </div>
+            {!canProposeTrades && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Equities Sleeve AUM</span>
@@ -804,12 +859,23 @@ export function InvestmentModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowRebalanceModal(true)}
+                disabled={!canProposeTrades}
+                title={!canProposeTrades ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("propose:trades", () =>
+                    setShowRebalanceModal(true),
+                  )
+                }
               >
                 <Icon name="activity" size={16} />
                 <span>Generate Rebalance Orders</span>
               </button>
             </div>
+            {!canProposeTrades && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Rebalance Queue</span>
@@ -867,15 +933,20 @@ export function InvestmentModulePage({
         {showRebalanceModal && (
           <RebalanceModal
             isOpen={showRebalanceModal}
+            isAuthorized={canProposeTrades}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowRebalanceModal(false)}
-            onRebalanceComplete={() => {
-              setShowRebalanceModal(false)
-              showToast({
-                title: "Simulated Orders Submitted",
-                message: "Trade batch submitted to staged order blotter for compliance authorization.",
-                tone: "success",
+            onRebalanceComplete={() =>
+              runAuthorized("propose:trades", () => {
+                setShowRebalanceModal(false)
+                showToast({
+                  title: "Simulated Orders Submitted",
+                  message:
+                    "Trade batch submitted to staged order blotter for compliance authorization.",
+                  tone: "success",
+                })
               })
-            }}
+            }
           />
         )}
       </div>
@@ -989,18 +1060,28 @@ export function InvestmentModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canProposeTrades}
+                title={!canProposeTrades ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "IPS Constraints Saved",
-                    message: "Updated portfolio concentration limits and drift threshold rules.",
-                    tone: "success",
-                  })
+                  runAuthorized("propose:trades", () =>
+                    showToast({
+                      title: "IPS Constraints Saved",
+                      message:
+                        "Updated portfolio concentration limits and drift threshold rules.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="check" size={16} />
                 <span>Save IPS Parameters</span>
               </button>
             </div>
+            {!canProposeTrades && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Concentration Cap</span>
@@ -1020,6 +1101,7 @@ export function InvestmentModulePage({
               <input
                 type="text"
                 defaultValue="Victoria Vance, CFA"
+                disabled={!canProposeTrades}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1028,6 +1110,7 @@ export function InvestmentModulePage({
               <input
                 type="text"
                 defaultValue="7.0% of Net Asset Value"
+                disabled={!canProposeTrades}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1036,6 +1119,7 @@ export function InvestmentModulePage({
               <input
                 type="text"
                 defaultValue="25.0% Max Sector Weight"
+                disabled={!canProposeTrades}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>

@@ -8,11 +8,15 @@ import {
   CreateGoalModal,
   ExportModal,
 } from "../../components/modals"
+import { authorizePermission, ROLE_CONFIGURATIONS } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface WealthCoachPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userName: string
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -61,9 +65,36 @@ export function WealthCoachModulePage({
   navId,
   navName,
   openAI,
+  userName,
+  userSession,
   onNavigate,
 }: WealthCoachPageProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "wealth_coach" &&
+    authorizePermission(
+      userSession,
+      permission,
+      ROLE_CONFIGURATIONS.wealth_coach,
+    ).allowed
+  const canManageCohorts = hasPermission("manage:coaching_cohorts")
+  const canAssignMilestones = hasPermission("assign:client_milestones")
+  const canWriteProfile = hasPermission("write:own_profile")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // State
   const [showScheduleModal, setShowScheduleModal] = useState(false)
@@ -164,7 +195,7 @@ export function WealthCoachModulePage({
   const [coachChat, setCoachChat] = useState<Array<{ sender: "ai" | "coach"; text: string }>>([
     {
       sender: "ai",
-      text: "Hello Elena! I am your Sphere AI Coaching Assistant. I am tracking 72 mentees across your 1-on-1 practice and cohort groups. Jordan Lee eliminated their first high-interest card this week, and Cohort Alpha achieved a 94% habit compliance rate. How can I support your sessions today?",
+      text: `Hello ${userName}! I am your Sphere AI Coaching Assistant. I am tracking 72 mentees across your 1-on-1 practice and cohort groups. Jordan Lee eliminated their first high-interest card this week, and Cohort Alpha achieved a 94% habit compliance rate. How can I support your sessions today?`,
     },
   ])
   const [coachInput, setCoachInput] = useState("")
@@ -211,12 +242,17 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canManageCohorts}
+                title={!canManageCohorts ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Mentee Enrolled (Simulated)",
-                    message: "Enrolled new client in 90-Day Financial Habit Transformation program.",
-                    tone: "success",
-                  })
+                  runAuthorized("manage:coaching_cohorts", () =>
+                    showToast({
+                      title: "Mentee Enrolled (Simulated)",
+                      message:
+                        "Enrolled new client in 90-Day Financial Habit Transformation program.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
@@ -241,6 +277,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canManageCohorts && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <section className="grid-metrics">
           <MetricCard
@@ -356,6 +397,7 @@ export function WealthCoachModulePage({
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:coaching_cohorts"
             onClose={() => setShowExportModal(false)}
             headers={["Client Name", "Cohort / Type", "Wellness Score", "Streak Days", "Tier", "Next Session"]}
             data={coachedClients.map((c) => [c.clientName, c.cohortOrType, c.wellnessScore, `${c.activeStreakDays} Days`, c.programTier, c.nextSessionDate])}
@@ -384,7 +426,13 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowScheduleModal(true)}
+                disabled={!canManageCohorts}
+                title={!canManageCohorts ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("manage:coaching_cohorts", () =>
+                    setShowScheduleModal(true),
+                  )
+                }
               >
                 <Icon name="calendar" size={16} />
                 <span>Schedule Coaching Call</span>
@@ -400,6 +448,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canManageCohorts && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <DataTable<CoachingSessionItem>
           title="Upcoming Coaching Sessions & Agendas"
@@ -468,13 +521,17 @@ export function WealthCoachModulePage({
         {showScheduleModal && (
           <ScheduleMeetingModal
             isOpen={showScheduleModal}
+            isAuthorized={canManageCohorts}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowScheduleModal(false)}
             onMeetingScheduled={(meeting) => {
-              setShowScheduleModal(false)
-              showToast({
-                title: "Coaching Session Booked",
-                message: `Scheduled ${meeting.type} for ${meeting.client}.`,
-                tone: "success",
+              runAuthorized("manage:coaching_cohorts", () => {
+                setShowScheduleModal(false)
+                showToast({
+                  title: "Coaching Session Booked",
+                  message: `Scheduled ${meeting.type} for ${meeting.client}.`,
+                  tone: "success",
+                })
               })
             }}
           />
@@ -500,7 +557,13 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowGoalModal(true)}
+                disabled={!canAssignMilestones}
+                title={!canAssignMilestones ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("assign:client_milestones", () =>
+                    setShowGoalModal(true),
+                  )
+                }
               >
                 <Icon name="plus" size={16} />
                 <span>Create Mentee Goal</span>
@@ -516,6 +579,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canAssignMilestones && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <div className="card" style={{ padding: "1.25rem", marginBottom: "1.5rem" }}>
           <h3 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem" }}>Active Client Behavioral Goals</h3>
@@ -548,13 +616,17 @@ export function WealthCoachModulePage({
         {showGoalModal && (
           <CreateGoalModal
             isOpen={showGoalModal}
+            isAuthorized={canAssignMilestones}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowGoalModal(false)}
             onGoalAdded={(newG) => {
-              setShowGoalModal(false)
-              showToast({
-                title: "Goal Established",
-                message: `Added behavioral target "${newG.name}" to coaching tracking dashboard.`,
-                tone: "success",
+              runAuthorized("assign:client_milestones", () => {
+                setShowGoalModal(false)
+                showToast({
+                  title: "Goal Established",
+                  message: `Added behavioral target "${newG.name}" to coaching tracking dashboard.`,
+                  tone: "success",
+                })
               })
             }}
           />
@@ -580,12 +652,17 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canAssignMilestones}
+                title={!canAssignMilestones ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Streak Verified (+50 XP)",
-                    message: "Verified weekly habit completion records for active cohorts.",
-                    tone: "success",
-                  })
+                  runAuthorized("assign:client_milestones", () =>
+                    showToast({
+                      title: "Streak Verified (+50 XP)",
+                      message:
+                        "Verified weekly habit completion records for active cohorts.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="activity" size={16} />
@@ -602,6 +679,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canAssignMilestones && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <DataTable<HabitTrackerItem>
           title="Monitored Financial Habits & Streaks"
@@ -670,12 +752,17 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canManageCohorts}
+                title={!canManageCohorts ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Challenge Launched (Simulated)",
-                    message: "Launched 30-Day Subscriptions Audit Sprint across 4 cohorts.",
-                    tone: "success",
-                  })
+                  runAuthorized("manage:coaching_cohorts", () =>
+                    showToast({
+                      title: "Challenge Launched (Simulated)",
+                      message:
+                        "Launched 30-Day Subscriptions Audit Sprint across 4 cohorts.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="sparkle" size={16} />
@@ -692,6 +779,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canManageCohorts && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem" }}>
           {challenges.map((ch) => (
@@ -751,12 +843,17 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canAssignMilestones}
+                title={!canAssignMilestones ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Resource Shared (Simulated)",
-                    message: "Dispatched 'Money Scripts & Financial Psychology Exercise' to Cohort Alpha.",
-                    tone: "success",
-                  })
+                  runAuthorized("assign:client_milestones", () =>
+                    showToast({
+                      title: "Resource Shared (Simulated)",
+                      message:
+                        "Dispatched 'Money Scripts & Financial Psychology Exercise' to Cohort Alpha.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="book" size={16} />
@@ -773,6 +870,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canAssignMilestones && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <DataTable
           title="Master Coaching Resources & Homework Toolkits"
@@ -913,7 +1015,7 @@ export function WealthCoachModulePage({
                 }}
               >
                 <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: "0.25rem" }}>
-                  {msg.sender === "coach" ? "Elena Rostova, AFC®" : "Sphere AI Coaching Co-Pilot"}
+                  {msg.sender === "coach" ? userName : "Sphere AI Coaching Co-Pilot"}
                 </div>
                 <div style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>{msg.text}</div>
               </div>
@@ -1058,12 +1160,17 @@ export function WealthCoachModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteProfile}
+                title={!canWriteProfile ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Settings Saved",
-                    message: "Coaching profile, booking availability, and cohort rules saved.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:own_profile", () =>
+                    showToast({
+                      title: "Settings Saved",
+                      message:
+                        "Coaching profile, booking availability, and cohort rules saved.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="check" size={16} />
@@ -1080,6 +1187,11 @@ export function WealthCoachModulePage({
             </div>
           </div>
         </section>
+        {!canWriteProfile && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         <div className="card" style={{ padding: "1.25rem" }}>
           <h3 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem" }}>Master Wealth Coach Profile</h3>
@@ -1088,7 +1200,8 @@ export function WealthCoachModulePage({
               <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.3rem" }}>Coach Name</label>
               <input
                 type="text"
-                defaultValue="Elena Rostova, AFC®, FFC®"
+                defaultValue={userName}
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1097,6 +1210,7 @@ export function WealthCoachModulePage({
               <input
                 type="text"
                 defaultValue="Rostova Wealth Coaching & Habit Studio"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1105,6 +1219,7 @@ export function WealthCoachModulePage({
               <input
                 type="text"
                 defaultValue="75 Mentees Max (Current: 72 Enrolled)"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>

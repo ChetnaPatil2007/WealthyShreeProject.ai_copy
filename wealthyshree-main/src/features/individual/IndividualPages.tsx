@@ -9,6 +9,8 @@ import { CreateGoalModal } from "../../components/modals/CreateGoalModal"
 import { RebalanceModal } from "../../components/modals/RebalanceModal"
 import { ExportModal } from "../../components/modals/ExportModal"
 import { SubmitClaimModal } from "../../components/modals/SubmitClaimModal"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 import {
   INITIAL_ASSETS,
   INITIAL_GOALS,
@@ -24,6 +26,9 @@ export interface IndividualPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userName: string
+  userEmail: string
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -32,8 +37,38 @@ export function IndividualModulePage({
   navName,
   openAI,
   onNavigate,
+  userName,
+  userEmail,
+  userSession,
 }: IndividualPageProps) {
   const { showToast } = useToast()
+  const roleConfig = getRoleConfig(userSession.activeRoleKey)
+  const assetAuthorization = authorizePermission(
+    userSession,
+    "write:own_assets",
+    roleConfig,
+  )
+  const profileAuthorization = authorizePermission(
+    userSession,
+    "write:own_profile",
+    roleConfig,
+  )
+  const runAuthorizedAction = (
+    permission: Permission,
+    action: () => void,
+  ) => {
+    if (!authorizePermission(userSession, permission, roleConfig).allowed) {
+      showToast({
+        title: "Access Restricted",
+        message: "This action requires verified permissions.",
+        tone: "warning",
+      })
+      return false
+    }
+
+    action()
+    return true
+  }
 
   // Modals state
   const [showAddAsset, setShowAddAsset] = useState(false)
@@ -57,8 +92,8 @@ export function IndividualModulePage({
 
   // Settings form state
   const [settings, setSettings] = useState({
-    fullName: "Alex Morgan",
-    email: "alex.morgan@wealthsphere.ai",
+    fullName: userName,
+    email: userEmail,
     currency: "USD ($)",
     timezone: "America/New_York (EST)",
     mfaHardware: true,
@@ -67,12 +102,17 @@ export function IndividualModulePage({
     taxAlerts: true,
     weeklyAiDigest: true,
   })
+  const updateSettings = (changes: Partial<typeof settings>) => {
+    runAuthorizedAction("write:own_profile", () =>
+      setSettings((current) => ({ ...current, ...changes })),
+    )
+  }
 
   // AI Wealth Coach chat state
   const [aiChatMessages, setAiChatMessages] = useState<Array<{ sender: "coach" | "user"; text: string }>>([
     {
       sender: "coach",
-      text: "Good morning, Alex. I am your Sphere AI Personal Wealth Coach. Your portfolio is currently tracking +7.1% YTD. We have identified an immediate $18,400 tax loss harvesting opportunity in your discretionary brokerage. How can I assist you today?",
+      text: `Good morning, ${userName}. I am your Sphere AI Personal Wealth Coach. Your portfolio is currently tracking +7.1% YTD. We have identified an immediate $18,400 tax loss harvesting opportunity in your discretionary brokerage. How can I assist you today?`,
     },
   ])
   const [aiInput, setAiInput] = useState("")
@@ -141,7 +181,17 @@ export function IndividualModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowAddAsset(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:own_assets", () =>
+                    setShowAddAsset(true),
+                  )
+                }
+                disabled={!assetAuthorization.allowed}
+                title={
+                  !assetAuthorization.allowed
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
               >
                 <Icon name="plus" size={16} /> Connect Account / Add Asset
               </button>
@@ -159,6 +209,11 @@ export function IndividualModulePage({
                 <Icon name="shield" size={16} /> Audit Telemetry
               </button>
             </div>
+            {!assetAuthorization.allowed && (
+              <p className="action-restriction-notice" role="note">
+                This action requires verified permissions.
+              </p>
+            )}
           </div>
           <div className="module-stat">
             <span>Net Worth (Assets - Liabilities)</span>
@@ -322,15 +377,26 @@ export function IndividualModulePage({
             actionButton={{
               label: "Add Holding",
               icon: "plus",
-              onClick: () => setShowAddAsset(true),
+              onClick: () =>
+                runAuthorizedAction("write:own_assets", () =>
+                  setShowAddAsset(true),
+                ),
+              requiredPermission: "write:own_assets",
             }}
           />
         </section>
 
         <AddAssetModal
           isOpen={showAddAsset}
+          isAuthorized={assetAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:own_assets", () => {})
+          }
           onClose={() => setShowAddAsset(false)}
           onAssetAdded={(newAsset) => {
+            if (
+              !runAuthorizedAction("write:own_assets", () => {})
+            ) return
             setAssets((prev) => [newAsset, ...prev])
             showToast({
               title: "Holding Connected",
@@ -517,6 +583,7 @@ export function IndividualModulePage({
 
         <ExportModal
           isOpen={showExport}
+          requiredPermission="export:own_assets"
           onClose={() => setShowExport(false)}
           title="Individual Transaction Ledger Export"
           headers={["Date", "Description", "Category", "Account", "Type", "Amount", "Status"]}
@@ -552,7 +619,17 @@ export function IndividualModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowRebalance(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:own_assets", () =>
+                    setShowRebalance(true),
+                  )
+                }
+                disabled={!assetAuthorization.allowed}
+                title={
+                  !assetAuthorization.allowed
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
               >
                 <Icon name="pie" size={16} /> Simulate Rebalance
               </button>
@@ -570,6 +647,11 @@ export function IndividualModulePage({
                 <Icon name="shield" size={16} /> Risk Analysis
               </button>
             </div>
+            {!assetAuthorization.allowed && (
+              <p className="action-restriction-notice" role="note">
+                This action requires verified permissions.
+              </p>
+            )}
           </div>
           <div className="module-stat">
             <span>Portfolio Value</span>
@@ -666,7 +748,11 @@ export function IndividualModulePage({
             actionButton={{
               label: "Rebalance Portfolio",
               icon: "pie",
-              onClick: () => setShowRebalance(true),
+              onClick: () =>
+                runAuthorizedAction("write:own_assets", () =>
+                  setShowRebalance(true),
+                ),
+              requiredPermission: "write:own_assets",
             }}
           />
         </section>
@@ -747,8 +833,15 @@ export function IndividualModulePage({
 
         <RebalanceModal
           isOpen={showRebalance}
+          isAuthorized={assetAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:own_assets", () => {})
+          }
           onClose={() => setShowRebalance(false)}
           onRebalanceComplete={() => {
+            if (
+              !runAuthorizedAction("write:own_assets", () => {})
+            ) return
             showToast({
               title: "Rebalance Orders Queued",
               message: "Generated 3 rebalancing tax-aware orders to reset drift within 0.5% tolerance.",
@@ -936,7 +1029,17 @@ export function IndividualModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowCreateGoal(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:own_assets", () =>
+                    setShowCreateGoal(true),
+                  )
+                }
+                disabled={!assetAuthorization.allowed}
+                title={
+                  !assetAuthorization.allowed
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
               >
                 <Icon name="plus" size={16} /> Create New Goal
               </button>
@@ -954,6 +1057,11 @@ export function IndividualModulePage({
                 <Icon name="shield" size={16} /> Monte Carlo Audit
               </button>
             </div>
+            {!assetAuthorization.allowed && (
+              <p className="action-restriction-notice" role="note">
+                This action requires verified permissions.
+              </p>
+            )}
           </div>
           <div className="module-stat">
             <span>Overall Milestone Progress</span>
@@ -1041,7 +1149,16 @@ export function IndividualModulePage({
                     type="button"
                     className="button button--secondary"
                     style={{ minHeight: "32px", padding: "0 12px", fontSize: "11px" }}
+                    disabled={!assetAuthorization.allowed}
+                    title={
+                      !assetAuthorization.allowed
+                        ? "This action requires verified permissions."
+                        : undefined
+                    }
                     onClick={() => {
+                      if (
+                        !runAuthorizedAction("write:own_assets", () => {})
+                      ) return
                       showToast({
                         title: "Goal Deposit",
                         message: `Contributed $2,500 surplus to ${g.name}.`,
@@ -1066,8 +1183,15 @@ export function IndividualModulePage({
 
         <CreateGoalModal
           isOpen={showCreateGoal}
+          isAuthorized={assetAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:own_assets", () => {})
+          }
           onClose={() => setShowCreateGoal(false)}
           onGoalAdded={(newGoal) => {
+            if (
+              !runAuthorizedAction("write:own_assets", () => {})
+            ) return
             setGoals((prev) => [...prev, newGoal])
             showToast({
               title: "Goal Created",
@@ -1097,7 +1221,17 @@ export function IndividualModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowClaim(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:own_assets", () =>
+                    setShowClaim(true),
+                  )
+                }
+                disabled={!assetAuthorization.allowed}
+                title={
+                  !assetAuthorization.allowed
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
               >
                 <Icon name="document" size={16} /> File Insurance Claim
               </button>
@@ -1228,15 +1362,31 @@ export function IndividualModulePage({
             actionButton={{
               label: "Submit Claim",
               icon: "document",
-              onClick: () => setShowClaim(true),
+              onClick: () =>
+                runAuthorizedAction("write:own_assets", () =>
+                  setShowClaim(true),
+                ),
+              requiredPermission: "write:own_assets",
             }}
           />
         </section>
 
+        {!assetAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
         <SubmitClaimModal
           isOpen={showClaim}
+          isAuthorized={assetAuthorization.allowed}
+          onUnauthorized={() =>
+            runAuthorizedAction("write:own_assets", () => {})
+          }
           onClose={() => setShowClaim(false)}
           onClaimSubmitted={(claim) => {
+            if (
+              !runAuthorizedAction("write:own_assets", () => {})
+            ) return
             showToast({
               title: "Claim Submitted",
               message: `Filed claim #${claim.claimNumber} ($${claim.amount.toLocaleString()}). Adjuster assigned.`,
@@ -1791,7 +1941,8 @@ export function IndividualModulePage({
                 <input
                   type="text"
                   value={settings.fullName}
-                  onChange={(e) => setSettings({ ...settings, fullName: e.target.value })}
+                  onChange={(e) => updateSettings({ fullName: e.target.value })}
+                  disabled={!profileAuthorization.allowed}
                 />
               </div>
               <div className="field">
@@ -1799,7 +1950,8 @@ export function IndividualModulePage({
                 <input
                   type="email"
                   value={settings.email}
-                  onChange={(e) => setSettings({ ...settings, email: e.target.value })}
+                  onChange={(e) => updateSettings({ email: e.target.value })}
+                  disabled={!profileAuthorization.allowed}
                 />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -1808,7 +1960,8 @@ export function IndividualModulePage({
                   <input
                     type="text"
                     value={settings.currency}
-                    onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
+                    onChange={(e) => updateSettings({ currency: e.target.value })}
+                    disabled={!profileAuthorization.allowed}
                   />
                 </div>
                 <div className="field">
@@ -1816,7 +1969,8 @@ export function IndividualModulePage({
                   <input
                     type="text"
                     value={settings.timezone}
-                    onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
+                    onChange={(e) => updateSettings({ timezone: e.target.value })}
+                    disabled={!profileAuthorization.allowed}
                   />
                 </div>
               </div>
@@ -1825,15 +1979,29 @@ export function IndividualModulePage({
                 className="button button--primary"
                 style={{ marginTop: "10px", alignSelf: "flex-start" }}
                 onClick={() => {
+                  if (
+                    !runAuthorizedAction("write:own_profile", () => {})
+                  ) return
                   showToast({
                     title: "Preferences Saved",
                     message: "Personal profile and currency configurations updated.",
                     tone: "success",
                   })
                 }}
+                disabled={!profileAuthorization.allowed}
+                title={
+                  !profileAuthorization.allowed
+                    ? "This action requires verified permissions."
+                    : undefined
+                }
               >
                 Save Profile Changes
               </button>
+              {!profileAuthorization.allowed && (
+                <p className="action-restriction-notice" role="note">
+                  This action requires verified permissions.
+                </p>
+              )}
             </div>
           </div>
 
@@ -1848,7 +2016,8 @@ export function IndividualModulePage({
                 <input
                   type="checkbox"
                   checked={settings.mfaHardware}
-                  onChange={(e) => setSettings({ ...settings, mfaHardware: e.target.checked })}
+                  onChange={(e) => updateSettings({ mfaHardware: e.target.checked })}
+                  disabled={!profileAuthorization.allowed}
                 />
               </label>
 
@@ -1860,7 +2029,8 @@ export function IndividualModulePage({
                 <input
                   type="checkbox"
                   checked={settings.largeTxAlerts}
-                  onChange={(e) => setSettings({ ...settings, largeTxAlerts: e.target.checked })}
+                  onChange={(e) => updateSettings({ largeTxAlerts: e.target.checked })}
+                  disabled={!profileAuthorization.allowed}
                 />
               </label>
 
@@ -1872,7 +2042,8 @@ export function IndividualModulePage({
                 <input
                   type="checkbox"
                   checked={settings.portfolioDriftAlerts}
-                  onChange={(e) => setSettings({ ...settings, portfolioDriftAlerts: e.target.checked })}
+                  onChange={(e) => updateSettings({ portfolioDriftAlerts: e.target.checked })}
+                  disabled={!profileAuthorization.allowed}
                 />
               </label>
 
@@ -1884,7 +2055,8 @@ export function IndividualModulePage({
                 <input
                   type="checkbox"
                   checked={settings.weeklyAiDigest}
-                  onChange={(e) => setSettings({ ...settings, weeklyAiDigest: e.target.checked })}
+                  onChange={(e) => updateSettings({ weeklyAiDigest: e.target.checked })}
+                  disabled={!profileAuthorization.allowed}
                 />
               </label>
 

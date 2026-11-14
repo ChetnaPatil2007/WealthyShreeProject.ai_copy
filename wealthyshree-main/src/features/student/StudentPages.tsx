@@ -6,11 +6,15 @@ import { useToast } from "../../components/ui/Toast"
 import { CreateGoalModal } from "../../components/modals/CreateGoalModal"
 import { ExportModal } from "../../components/modals/ExportModal"
 import type { MockGoal } from "../../services/mockData"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface StudentPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userName: string
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -45,9 +49,43 @@ export function StudentModulePage({
   navId,
   navName,
   openAI,
+  userName,
+  userSession,
   onNavigate,
 }: StudentPageProps) {
   const { showToast } = useToast()
+  const roleConfig = getRoleConfig(userSession.activeRoleKey)
+  const budgetAuthorization = authorizePermission(
+    userSession,
+    "write:student_budget",
+    roleConfig,
+  )
+  const educationAuthorization = authorizePermission(
+    userSession,
+    "write:student_education",
+    roleConfig,
+  )
+  const profileAuthorization = authorizePermission(
+    userSession,
+    "write:own_profile",
+    roleConfig,
+  )
+  const runAuthorizedAction = (
+    permission: Permission,
+    action: () => void,
+  ) => {
+    if (!authorizePermission(userSession, permission, roleConfig).allowed) {
+      showToast({
+        title: "Access Restricted",
+        message: "This action requires verified permissions.",
+        tone: "warning",
+      })
+      return false
+    }
+
+    action()
+    return true
+  }
 
   // Modals
   const [showGoalModal, setShowGoalModal] = useState(false)
@@ -112,6 +150,7 @@ export function StudentModulePage({
 
   const handleAddExpense = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!runAuthorizedAction("write:student_budget", () => {})) return
     const amt = parseFloat(newExpenseAmount)
     if (!newExpenseTitle.trim() || isNaN(amt) || amt <= 0) {
       showToast({
@@ -189,6 +228,7 @@ export function StudentModulePage({
   ])
 
   const handleMicroDeposit = (id: string, amount: number) => {
+    if (!runAuthorizedAction("write:student_budget", () => {})) return
     setStudentGoals((prev) =>
       prev.map((g) => {
         if (g.id === id) {
@@ -210,6 +250,7 @@ export function StudentModulePage({
   }
 
   const handleCreateStudentGoal = (g: MockGoal) => {
+    if (!runAuthorizedAction("write:student_budget", () => {})) return
     const newG: StudentGoal = {
       id: `sg-${Date.now()}`,
       name: g.name,
@@ -295,6 +336,7 @@ export function StudentModulePage({
   const [activeTopicFilter, setActiveTopicFilter] = useState("All")
 
   const toggleTopicCompletion = (id: string) => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     setLearningTopics((prev) =>
       prev.map((t) => {
         if (t.id === id) {
@@ -386,6 +428,7 @@ export function StudentModulePage({
   const [courseFilter, setCourseFilter] = useState("All")
 
   const handleEnrollCourse = (id: string) => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     setCourses((prev) =>
       prev.map((c) => {
         if (c.id === id) {
@@ -402,6 +445,7 @@ export function StudentModulePage({
   }
 
   const handleAdvanceLesson = (id: string) => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     setCourses((prev) =>
       prev.map((c) => {
         if (c.id === id) {
@@ -504,11 +548,13 @@ export function StudentModulePage({
   const [quizScore, setQuizScore] = useState<number | null>(null)
 
   const handleSelectOption = (qId: number, optIdx: number) => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     if (quizSubmitted) return
     setSelectedAnswers((prev) => ({ ...prev, [qId]: optIdx }))
   }
 
   const handleSubmitQuiz = () => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     if (Object.keys(selectedAnswers).length < quizQuestions.length) {
       showToast({
         title: "Incomplete Quiz",
@@ -534,6 +580,7 @@ export function StudentModulePage({
   }
 
   const handleResetQuiz = () => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     setSelectedAnswers({})
     setQuizSubmitted(false)
     setQuizScore(null)
@@ -597,6 +644,7 @@ export function StudentModulePage({
   const [tutorInput, setTutorInput] = useState("")
 
   const handleSendTutorMessage = (presetQuery?: string) => {
+    if (!runAuthorizedAction("write:student_education", () => {})) return
     const query = presetQuery || tutorInput.trim()
     if (!query) return
 
@@ -715,7 +763,7 @@ export function StudentModulePage({
 
   // 9. Settings State
   const [profileSettings, setProfileSettings] = useState({
-    fullName: "Jordan Lee",
+    fullName: userName,
     university: "Metropolitan Institute of Technology",
     major: "Computer Science & Applied Economics",
     classYear: "Class of 2026 (Junior)",
@@ -728,8 +776,19 @@ export function StudentModulePage({
     weeklyDigest: true,
   })
 
+  const updateProfileSettings = (
+    permission: Permission,
+    changes: Partial<typeof profileSettings>,
+  ) => {
+    runAuthorizedAction(permission, () =>
+      setProfileSettings((current) => ({ ...current, ...changes })),
+    )
+  }
+
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!runAuthorizedAction("write:own_profile", () => {})) return
+    if (!runAuthorizedAction("write:student_budget", () => {})) return
     showToast({
       title: "Settings Saved",
       message: "Student profile & workspace preferences saved successfully!",
@@ -793,6 +852,11 @@ export function StudentModulePage({
             </div>
           </div>
         </section>
+        {!budgetAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         <section className="grid-metrics">
           <MetricCard
@@ -897,6 +961,11 @@ export function StudentModulePage({
               Add cash or card purchases to stay within your monthly budget allowance.
             </p>
             <form onSubmit={handleAddExpense} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {!budgetAuthorization.allowed && (
+                <p className="action-restriction-notice" role="alert">
+                  This action requires verified permissions.
+                </p>
+              )}
               <div>
                 <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.25rem", fontWeight: 500 }}>
                   Expense Description
@@ -905,7 +974,17 @@ export function StudentModulePage({
                   type="text"
                   placeholder="e.g., Physics Lab Manual, Campus Coffee"
                   value={newExpenseTitle}
-                  onChange={(e) => setNewExpenseTitle(e.target.value)}
+                  onChange={(e) =>
+                    runAuthorizedAction("write:student_budget", () =>
+                      setNewExpenseTitle(e.target.value),
+                    )
+                  }
+                  disabled={!budgetAuthorization.allowed}
+                  title={
+                    budgetAuthorization.allowed
+                      ? undefined
+                      : "This action requires verified permissions."
+                  }
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -927,7 +1006,17 @@ export function StudentModulePage({
                     step="0.01"
                     placeholder="25.00"
                     value={newExpenseAmount}
-                    onChange={(e) => setNewExpenseAmount(e.target.value)}
+                    onChange={(e) =>
+                      runAuthorizedAction("write:student_budget", () =>
+                        setNewExpenseAmount(e.target.value),
+                      )
+                    }
+                    disabled={!budgetAuthorization.allowed}
+                    title={
+                      budgetAuthorization.allowed
+                        ? undefined
+                        : "This action requires verified permissions."
+                    }
                     style={{
                       width: "100%",
                       padding: "0.5rem 0.75rem",
@@ -944,7 +1033,19 @@ export function StudentModulePage({
                   </label>
                   <select
                     value={newExpenseCat}
-                    onChange={(e) => setNewExpenseCat(e.target.value as any)}
+                    onChange={(e) =>
+                      runAuthorizedAction("write:student_budget", () =>
+                        setNewExpenseCat(
+                          e.target.value as StudentExpense["category"],
+                        ),
+                      )
+                    }
+                    disabled={!budgetAuthorization.allowed}
+                    title={
+                      budgetAuthorization.allowed
+                        ? undefined
+                        : "This action requires verified permissions."
+                    }
                     style={{
                       width: "100%",
                       padding: "0.5rem 0.75rem",
@@ -968,6 +1069,12 @@ export function StudentModulePage({
                 type="submit"
                 className="button button--primary"
                 style={{ marginTop: "0.5rem", justifyContent: "center" }}
+                disabled={!budgetAuthorization.allowed}
+                title={
+                  budgetAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="plus" size={16} />
                 <span>Save Expense & Update Budget</span>
@@ -1035,6 +1142,7 @@ export function StudentModulePage({
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:student_budget"
             onClose={() => setShowExportModal(false)}
             headers={["Date", "Description", "Category", "Amount", "Method"]}
             data={expenses.map((e) => [e.date, e.title, e.category, `$${e.amount.toFixed(2)}`, e.method])}
@@ -1071,7 +1179,17 @@ export function StudentModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowGoalModal(true)}
+                onClick={() =>
+                  runAuthorizedAction("write:student_budget", () =>
+                    setShowGoalModal(true),
+                  )
+                }
+                disabled={!budgetAuthorization.allowed}
+                title={
+                  budgetAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="plus" size={16} />
                 <span>Create New Student Goal</span>
@@ -1079,13 +1197,21 @@ export function StudentModulePage({
               <button
                 type="button"
                 className="button button--secondary"
-                onClick={() => {
-                  showToast({
-                    title: "Round-Ups Active",
-                    message: "Automated $25 weekly round-up activated!",
-                    tone: "success",
+                onClick={() =>
+                  runAuthorizedAction("write:student_budget", () => {
+                    showToast({
+                      title: "Round-Ups Active",
+                      message: "Automated $25 weekly round-up activated!",
+                      tone: "success",
+                    })
                   })
-                }}
+                }
+                disabled={!budgetAuthorization.allowed}
+                title={
+                  budgetAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="sparkle" size={16} />
                 <span>Enable Micro Round-Ups</span>
@@ -1184,7 +1310,12 @@ export function StudentModulePage({
                     className="button button--secondary"
                     style={{ flex: 1, fontSize: "0.8rem", padding: "0.4rem" }}
                     onClick={() => handleMicroDeposit(goal.id, 25)}
-                    disabled={isCompleted}
+                    disabled={isCompleted || !budgetAuthorization.allowed}
+                    title={
+                      budgetAuthorization.allowed
+                        ? undefined
+                        : "This action requires verified permissions."
+                    }
                   >
                     <Icon name="plus" size={14} />
                     <span>Deposit $25</span>
@@ -1194,7 +1325,12 @@ export function StudentModulePage({
                     className="button button--ghost"
                     style={{ flex: 1, fontSize: "0.8rem", padding: "0.4rem" }}
                     onClick={() => handleMicroDeposit(goal.id, 50)}
-                    disabled={isCompleted}
+                    disabled={isCompleted || !budgetAuthorization.allowed}
+                    title={
+                      budgetAuthorization.allowed
+                        ? undefined
+                        : "This action requires verified permissions."
+                    }
                   >
                     <span>Deposit $50</span>
                   </button>
@@ -1227,6 +1363,10 @@ export function StudentModulePage({
         {showGoalModal && (
           <CreateGoalModal
             isOpen={showGoalModal}
+            isAuthorized={budgetAuthorization.allowed}
+            onUnauthorized={() =>
+              runAuthorizedAction("write:student_budget", () => {})
+            }
             onClose={() => setShowGoalModal(false)}
             onGoalAdded={handleCreateStudentGoal}
           />
@@ -1283,6 +1423,11 @@ export function StudentModulePage({
             </div>
           </div>
         </section>
+        {!educationAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Filter Bar */}
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
@@ -1323,6 +1468,12 @@ export function StudentModulePage({
                   className={`button ${topic.completed ? "button--ghost" : "button--secondary"}`}
                   style={{ fontSize: "0.8rem", padding: "0.3rem 0.6rem" }}
                   onClick={() => toggleTopicCompletion(topic.id)}
+                  disabled={!educationAuthorization.allowed}
+                  title={
+                    educationAuthorization.allowed
+                      ? undefined
+                      : "This action requires verified permissions."
+                  }
                 >
                   <Icon name={topic.completed ? "check" : "book"} size={14} />
                   <span>{topic.completed ? "Mark Unread" : "Mark Completed"}</span>
@@ -1386,6 +1537,11 @@ export function StudentModulePage({
             </div>
           </div>
         </section>
+        {!educationAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Filter Tabs */}
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.25rem" }}>
@@ -1452,7 +1608,12 @@ export function StudentModulePage({
                       className="button button--primary"
                       style={{ flex: 1, justifyContent: "center", fontSize: "0.85rem" }}
                       onClick={() => handleAdvanceLesson(c.id)}
-                      disabled={isDone}
+                      disabled={isDone || !educationAuthorization.allowed}
+                      title={
+                        educationAuthorization.allowed
+                          ? undefined
+                          : "This action requires verified permissions."
+                      }
                     >
                       <Icon name={isDone ? "check" : "arrow"} size={16} />
                       <span>{isDone ? "Course Completed" : "Advance Lesson (+25 XP)"}</span>
@@ -1463,6 +1624,12 @@ export function StudentModulePage({
                       className="button button--secondary"
                       style={{ flex: 1, justifyContent: "center", fontSize: "0.85rem" }}
                       onClick={() => handleEnrollCourse(c.id)}
+                      disabled={!educationAuthorization.allowed}
+                      title={
+                        educationAuthorization.allowed
+                          ? undefined
+                          : "This action requires verified permissions."
+                      }
                     >
                       <Icon name="plus" size={16} />
                       <span>Enroll in Course</span>
@@ -1519,6 +1686,11 @@ export function StudentModulePage({
             </div>
           </div>
         </section>
+        {!educationAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Interactive Quiz Engine */}
         <div id="quiz-engine" className="card" style={{ padding: "1.5rem", marginBottom: "1.5rem" }}>
@@ -1543,6 +1715,12 @@ export function StudentModulePage({
                   type="button"
                   className="button button--ghost"
                   onClick={handleResetQuiz}
+                  disabled={!educationAuthorization.allowed}
+                  title={
+                    educationAuthorization.allowed
+                      ? undefined
+                      : "This action requires verified permissions."
+                  }
                 >
                   <Icon name="activity" size={14} />
                   <span>Retake</span>
@@ -1614,7 +1792,7 @@ export function StudentModulePage({
                             name={`quiz-q-${q.id}`}
                             checked={isChosen}
                             onChange={() => handleSelectOption(q.id, optIdx)}
-                            disabled={isSubmitted}
+                            disabled={isSubmitted || !educationAuthorization.allowed}
                           />
                           <span>{opt}</span>
                         </label>
@@ -1638,6 +1816,12 @@ export function StudentModulePage({
                 type="button"
                 className="button button--primary"
                 onClick={handleSubmitQuiz}
+                disabled={!educationAuthorization.allowed}
+                title={
+                  educationAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <Icon name="check" size={16} />
                 <span>Submit Quiz for Grading</span>
@@ -1654,6 +1838,12 @@ export function StudentModulePage({
                 type="button"
                 className="button button--secondary"
                 onClick={handleResetQuiz}
+                disabled={!educationAuthorization.allowed}
+                title={
+                  educationAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <span>Take Another Attempt</span>
               </button>
@@ -1883,6 +2073,11 @@ export function StudentModulePage({
             </div>
           </div>
         </section>
+        {!educationAuthorization.allowed && (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        )}
 
         {/* Prompt Recommendation Chips */}
         <div style={{ marginBottom: "1.25rem" }}>
@@ -1902,6 +2097,12 @@ export function StudentModulePage({
                 className="button button--ghost"
                 style={{ fontSize: "0.8rem", padding: "0.3rem 0.65rem" }}
                 onClick={() => handleSendTutorMessage(p)}
+                disabled={!educationAuthorization.allowed}
+                title={
+                  educationAuthorization.allowed
+                    ? undefined
+                    : "This action requires verified permissions."
+                }
               >
                 <span>{p}</span>
               </button>
@@ -1938,7 +2139,7 @@ export function StudentModulePage({
                 }}
               >
                 <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: "0.25rem" }}>
-                  {msg.sender === "student" ? "Jordan Lee (You)" : "Sphere AI Student Tutor"} · {msg.time}
+                  {msg.sender === "student" ? `${userName} (You)` : "Sphere AI Student Tutor"} · {msg.time}
                 </div>
                 <div style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>{msg.text}</div>
               </div>
@@ -1956,7 +2157,12 @@ export function StudentModulePage({
               type="text"
               placeholder="Ask a question about student loans, budgets, credit, or investing..."
               value={tutorInput}
-              onChange={(e) => setTutorInput(e.target.value)}
+              onChange={(e) =>
+                runAuthorizedAction("write:student_education", () =>
+                  setTutorInput(e.target.value),
+                )
+              }
+              disabled={!educationAuthorization.allowed}
               style={{
                 flex: 1,
                 padding: "0.6rem 0.85rem",
@@ -1966,7 +2172,16 @@ export function StudentModulePage({
                 color: "inherit",
               }}
             />
-            <button type="submit" className="button button--primary">
+            <button
+              type="submit"
+              className="button button--primary"
+              disabled={!educationAuthorization.allowed}
+              title={
+                educationAuthorization.allowed
+                  ? undefined
+                  : "This action requires verified permissions."
+              }
+            >
               <Icon name="arrow" size={16} />
               <span>Ask Tutor</span>
             </button>
@@ -2130,7 +2345,17 @@ export function StudentModulePage({
           </div>
         </section>
 
+        {!profileAuthorization.allowed || !budgetAuthorization.allowed ? (
+          <p className="action-restriction-notice" role="note">
+            This action requires verified permissions.
+          </p>
+        ) : null}
         <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          {(!profileAuthorization.allowed || !budgetAuthorization.allowed) && (
+            <p className="action-restriction-notice" role="alert">
+              This action requires verified permissions.
+            </p>
+          )}
           {/* Academic Info */}
           <div className="card" style={{ padding: "1.25rem" }}>
             <h3 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem" }}>Academic & Student Identity</h3>
@@ -2142,7 +2367,12 @@ export function StudentModulePage({
                 <input
                   type="text"
                   value={profileSettings.fullName}
-                  onChange={(e) => setProfileSettings({ ...profileSettings, fullName: e.target.value })}
+                  onChange={(e) =>
+                    updateProfileSettings("write:own_profile", {
+                      fullName: e.target.value,
+                    })
+                  }
+                  disabled={!profileAuthorization.allowed}
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -2161,7 +2391,12 @@ export function StudentModulePage({
                 <input
                   type="text"
                   value={profileSettings.university}
-                  onChange={(e) => setProfileSettings({ ...profileSettings, university: e.target.value })}
+                  onChange={(e) =>
+                    updateProfileSettings("write:own_profile", {
+                      university: e.target.value,
+                    })
+                  }
+                  disabled={!profileAuthorization.allowed}
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -2180,7 +2415,12 @@ export function StudentModulePage({
                 <input
                   type="text"
                   value={profileSettings.major}
-                  onChange={(e) => setProfileSettings({ ...profileSettings, major: e.target.value })}
+                  onChange={(e) =>
+                    updateProfileSettings("write:own_profile", {
+                      major: e.target.value,
+                    })
+                  }
+                  disabled={!profileAuthorization.allowed}
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -2199,7 +2439,12 @@ export function StudentModulePage({
                 <input
                   type="text"
                   value={profileSettings.classYear}
-                  onChange={(e) => setProfileSettings({ ...profileSettings, classYear: e.target.value })}
+                  onChange={(e) =>
+                    updateProfileSettings("write:own_profile", {
+                      classYear: e.target.value,
+                    })
+                  }
+                  disabled={!profileAuthorization.allowed}
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -2218,7 +2463,12 @@ export function StudentModulePage({
                 <input
                   type="email"
                   value={profileSettings.campusEmail}
-                  onChange={(e) => setProfileSettings({ ...profileSettings, campusEmail: e.target.value })}
+                  onChange={(e) =>
+                    updateProfileSettings("write:own_profile", {
+                      campusEmail: e.target.value,
+                    })
+                  }
+                  disabled={!profileAuthorization.allowed}
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -2237,7 +2487,12 @@ export function StudentModulePage({
                 <input
                   type="number"
                   value={profileSettings.monthlyStipend}
-                  onChange={(e) => setProfileSettings({ ...profileSettings, monthlyStipend: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    updateProfileSettings("write:student_budget", {
+                      monthlyStipend: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  disabled={!budgetAuthorization.allowed}
                   style={{
                     width: "100%",
                     padding: "0.5rem 0.75rem",
@@ -2260,11 +2515,11 @@ export function StudentModulePage({
                   type="checkbox"
                   checked={profileSettings.budgetAlertThreshold === 80}
                   onChange={(e) =>
-                    setProfileSettings({
-                      ...profileSettings,
+                    updateProfileSettings("write:student_budget", {
                       budgetAlertThreshold: e.target.checked ? 80 : 100,
                     })
                   }
+                  disabled={!budgetAuthorization.allowed}
                 />
                 <span>Notify me when monthly campus spending reaches 80% of limit</span>
               </label>
@@ -2274,11 +2529,11 @@ export function StudentModulePage({
                   type="checkbox"
                   checked={profileSettings.dailyQuizReminder}
                   onChange={(e) =>
-                    setProfileSettings({
-                      ...profileSettings,
+                    updateProfileSettings("write:own_profile", {
                       dailyQuizReminder: e.target.checked,
                     })
                   }
+                  disabled={!profileAuthorization.allowed}
                 />
                 <span>Daily Quiz & Streak reminders (maintain active learning badge)</span>
               </label>
@@ -2288,11 +2543,11 @@ export function StudentModulePage({
                   type="checkbox"
                   checked={profileSettings.loanAlerts}
                   onChange={(e) =>
-                    setProfileSettings({
-                      ...profileSettings,
+                    updateProfileSettings("write:own_profile", {
                       loanAlerts: e.target.checked,
                     })
                   }
+                  disabled={!profileAuthorization.allowed}
                 />
                 <span>Quarterly interest capitalization alert for unsubsidized loans</span>
               </label>
@@ -2302,11 +2557,11 @@ export function StudentModulePage({
                   type="checkbox"
                   checked={profileSettings.weeklyDigest}
                   onChange={(e) =>
-                    setProfileSettings({
-                      ...profileSettings,
+                    updateProfileSettings("write:own_profile", {
                       weeklyDigest: e.target.checked,
                     })
                   }
+                  disabled={!profileAuthorization.allowed}
                 />
                 <span>Weekly Sphere AI Financial Coach digest</span>
               </label>
@@ -2314,7 +2569,18 @@ export function StudentModulePage({
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button type="submit" className="button button--primary">
+            <button
+              type="submit"
+              className="button button--primary"
+              disabled={
+                !profileAuthorization.allowed || !budgetAuthorization.allowed
+              }
+              title={
+                profileAuthorization.allowed && budgetAuthorization.allowed
+                  ? undefined
+                  : "This action requires verified permissions."
+              }
+            >
               <Icon name="check" size={16} />
               <span>Save Student Profile & Preferences</span>
             </button>

@@ -158,6 +158,7 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "write:own_profile",
       "read:own_assets",
       "write:own_assets",
+      "export:own_assets",
       "read:tax_scenarios",
     ],
     defaultGrantedPermissions: ["read:own_profile", "read:own_assets"],
@@ -306,6 +307,7 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "read:family_group",
       "write:family_group",
       "manage:family_members",
+      "export:family_group",
       "read:own_profile",
       "read:own_assets",
     ],
@@ -452,8 +454,12 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "read:student_budget",
       "write:student_budget",
+      "export:student_budget",
+      "write:student_education",
       "read:student_loans",
+      "export:student_loans",
       "read:own_profile",
+      "write:own_profile",
     ],
     defaultGrantedPermissions: ["read:student_budget", "read:own_profile"],
     securityRequirement:
@@ -627,6 +633,8 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "write:client_roster",
       "propose:trades",
       "execute:trades",
+      "export:client_roster",
+      "export:audit_reports",
     ],
     defaultGrantedPermissions: ["read:client_roster"],
     securityRequirement:
@@ -805,8 +813,10 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "conduct:statutory_audit",
       "sign:audit_reports",
+      "export:statutory_audit",
       "file:tax_returns",
       "read_only:audit_trail",
+      "write:own_profile",
     ],
     defaultGrantedPermissions: ["read_only:audit_trail"],
     securityRequirement:
@@ -976,8 +986,12 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     ],
     intendedPermissions: [
       "read:tax_scenarios",
+      "write:tax_scenarios",
       "file:tax_returns",
+      "export:tax_returns",
       "read:client_roster",
+      "write:client_roster",
+      "write:own_profile",
     ],
     defaultGrantedPermissions: ["read:tax_scenarios"],
     securityRequirement:
@@ -1149,9 +1163,10 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "propose:trades",
       "execute:trades",
+      "export:investment_portfolios",
       "manage:private_bank_book",
     ],
-    defaultGrantedPermissions: ["propose:trades"],
+    defaultGrantedPermissions: [],
     securityRequirement:
       "CFA Charterholder or SEC-registered investment manager authorization.",
   },
@@ -1287,7 +1302,7 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         label: "Initiate claims packet",
         description: "Coordinate death benefit or disability filing",
         icon: "document",
-        requiredPermission: "read:insurance_policies",
+        requiredPermission: "submit:insurance_claims",
       },
     ],
     intendedFeatures: [
@@ -1324,6 +1339,10 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "read:insurance_policies",
       "issue:insurance_quotes",
       "read:client_roster",
+      "write:client_roster",
+      "write:own_profile",
+      "submit:insurance_claims",
+      "export:insurance_policies",
     ],
     defaultGrantedPermissions: ["read:insurance_policies"],
     securityRequirement:
@@ -1452,7 +1471,6 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         label: "Review mentee cash flow",
         description: "Inspect spending leaks and positive trends",
         icon: "wallet",
-        requiredPermission: "manage:coaching_cohorts",
       },
       {
         id: "issue_badge",
@@ -1495,9 +1513,11 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "manage:coaching_cohorts",
       "assign:client_milestones",
+      "export:coaching_cohorts",
       "read:own_profile",
+      "write:own_profile",
     ],
-    defaultGrantedPermissions: ["manage:coaching_cohorts"],
+    defaultGrantedPermissions: [],
     securityRequirement:
       "Accredited Financial Counselor (AFC®) or ICF coaching accreditation.",
   },
@@ -1619,7 +1639,7 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         description: "Publish agenda, financials, and voting resolutions",
         icon: "family",
         primary: true,
-        requiredPermission: "read:family_office_entities",
+        requiredPermission: "write:family_group",
       },
       {
         id: "fund_capital_call",
@@ -1633,7 +1653,6 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         label: "Audit legal entity roster",
         description: "Review registered agents, filings, and bylaws",
         icon: "document",
-        requiredPermission: "read:family_office_entities",
       },
       {
         id: "grant_approval",
@@ -1676,6 +1695,7 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "read:family_office_entities",
       "approve:capital_calls",
+      "export:family_office_entities",
       "read:family_group",
       "write:family_group",
     ],
@@ -1858,9 +1878,11 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "manage:private_bank_book",
       "underwrite:credit_lines",
+      "execute:wire_transfers",
+      "export:private_bank_book",
       "read_only:audit_trail",
     ],
-    defaultGrantedPermissions: ["manage:private_bank_book"],
+    defaultGrantedPermissions: [],
     securityRequirement:
       "FinCEN / OCC / FINMA registered banking officer credentials & SAML 2.0 SSO.",
   },
@@ -1985,7 +2007,6 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         description: "Deploy tax planning workshop for open enrollment",
         icon: "calendar",
         primary: true,
-        requiredPermission: "read:workforce_wellness",
       },
       {
         id: "grant_esop",
@@ -1999,14 +2020,14 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         label: "Export ERISA 5500 census",
         description: "Auto-generate 401(k) nondiscrimination testing pack",
         icon: "document",
-        requiredPermission: "read:workforce_wellness",
+        requiredPermission: "export:workforce_wellness",
       },
       {
         id: "notify_benefits",
         label: "Send enrollment broadcast",
         description: "Notify 380 un-enrolled team members",
         icon: "notification",
-        requiredPermission: "read:workforce_wellness",
+        requiredPermission: "manage:workforce_wellness",
       },
     ],
     intendedFeatures: [
@@ -2041,7 +2062,9 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     ],
     intendedPermissions: [
       "read:workforce_wellness",
+      "manage:workforce_wellness",
       "manage:equity_plans",
+      "export:workforce_wellness",
       "read:own_profile",
     ],
     defaultGrantedPermissions: ["read:workforce_wellness"],
@@ -2163,28 +2186,25 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         description: "Deploy interactive wealth & capital curriculum",
         icon: "book",
         primary: true,
-        requiredPermission: "read:workforce_wellness",
       },
       {
         id: "schedule_event",
         label: "Schedule financial literacy seminar",
         description: "Organize campus financial independence workshop",
         icon: "calendar",
-        requiredPermission: "read:workforce_wellness",
       },
       {
         id: "issue_diploma_creds",
         label: "Issue verifiable micro-credentials",
         description: "Batch mint 420 blockchain-verifiable badges",
         icon: "sparkle",
-        requiredPermission: "approve:scholarship_disbursements",
       },
       {
         id: "export_analytics",
         label: "Export student cohort analytics",
         description: "Download academic completion & mastery PDF",
         icon: "document",
-        requiredPermission: "read:workforce_wellness",
+        requiredPermission: "export:education_reports",
       },
     ],
     intendedFeatures: [
@@ -2221,6 +2241,11 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "read:endowment_portfolio",
       "approve:scholarship_disbursements",
       "read:workforce_wellness",
+      "manage:campus_events",
+      "issue:academic_credentials",
+      "write:university_settings",
+      "export:education_reports",
+      "export:scholarship_disbursements",
     ],
     defaultGrantedPermissions: ["read:endowment_portfolio"],
     securityRequirement:
@@ -2343,28 +2368,25 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         description: "Deploy community financial workshops in District 4",
         icon: "book",
         primary: true,
-        requiredPermission: "view:sovereign_aggregates",
       },
       {
         id: "audit_disbursements",
         label: "Audit beneficiary disbursement pool",
         description: "Inspect $42.5M direct welfare fund transfers",
         icon: "shield",
-        requiredPermission: "audit:public_funds",
       },
       {
         id: "convene_taskforce",
         label: "Convene inter-agency task force",
         description: "Publish cross-departmental coordination agenda",
         icon: "user",
-        requiredPermission: "view:sovereign_aggregates",
       },
       {
         id: "generate_impact",
         label: "Generate public impact report",
         description: "Export annual citizen financial welfare audit",
         icon: "document",
-        requiredPermission: "view:sovereign_aggregates",
+        requiredPermission: "export:public_funds",
       },
     ],
     intendedFeatures: [
@@ -2400,6 +2422,9 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
     intendedPermissions: [
       "view:sovereign_aggregates",
       "audit:public_funds",
+      "manage:public_programs",
+      "write:government_settings",
+      "export:public_funds",
       "read_only:audit_trail",
     ],
     defaultGrantedPermissions: ["view:sovereign_aggregates"],
@@ -2535,28 +2560,25 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         description: "Send cryptographically tracked evidence request",
         icon: "plus",
         primary: true,
-        requiredPermission: "read_only:audit_trail",
       },
       {
         id: "signoff_workpaper",
         label: "Sign off audit workpaper",
         description: "Partner approval for revenue recognition sample",
         icon: "check",
-        requiredPermission: "certify:compliance_reports",
       },
       {
         id: "log_finding",
         label: "Log compliance finding",
         description: "Record control exception with remediation milestone",
         icon: "alert",
-        requiredPermission: "flag:control_exceptions",
       },
       {
         id: "opinion_letter",
         label: "Generate audit opinion letter",
         description: "Draft independent auditor attestation report",
         icon: "document",
-        requiredPermission: "certify:compliance_reports",
+        requiredPermission: "export:audit_reports",
       },
     ],
     intendedFeatures: [
@@ -2593,6 +2615,8 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "read_only:audit_trail",
       "flag:control_exceptions",
       "certify:compliance_reports",
+      "export:audit_reports",
+      "write:auditor_settings",
     ],
     defaultGrantedPermissions: ["read_only:audit_trail"],
     securityRequirement:
@@ -2724,7 +2748,6 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         label: "Review pending access requests",
         description: "Audit 14 elevated privilege and SSO access requests",
         icon: "alert",
-        requiredPermission: "manage:rbac_roles",
       },
       {
         id: "adjust_ai_limits",
@@ -2738,7 +2761,7 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
         label: "Rotate platform master keys",
         description: "Trigger cryptographic KMS key rotation & HSM audit",
         icon: "lock",
-        requiredPermission: "manage:rbac_roles",
+        requiredPermission: "rotate:platform_keys",
       },
     ],
     intendedFeatures: [
@@ -2775,8 +2798,12 @@ export const ROLE_CONFIGURATIONS: Record<RoleKey, RoleConfig> = {
       "manage:tenants",
       "manage:rbac_roles",
       "configure:ai_policies",
+      "configure:platform",
+      "rotate:platform_keys",
       "view:system_telemetry",
       "read_only:audit_trail",
+      "export:system_telemetry",
+      "export:platform_users",
     ],
     defaultGrantedPermissions: [],
     securityRequirement:
@@ -2851,22 +2878,66 @@ export function authorizeAction(
     return { allowed: true }
   }
 
-  const isGranted = hasPermission(session, action.requiredPermission)
-  if (isGranted) {
+  const requiredPermission = action.requiredPermission
+  const canonicalRole = ROLE_CONFIGURATIONS[activeRole.key]
+
+  if (!session || session.activeRoleKey !== canonicalRole.key) {
+    return {
+      allowed: false,
+      requiredPermission,
+      requiresVerification: true,
+      reason: "This action requires verified permissions.",
+    }
+  }
+
+  if (!session.verifiedRoleKeys.includes(canonicalRole.key)) {
+    return {
+      allowed: false,
+      requiredPermission,
+      requiresVerification: true,
+      reason: "This action requires verified permissions.",
+    }
+  }
+
+  const isRoleIntended =
+    canonicalRole.intendedPermissions.includes(requiredPermission)
+  if (!isRoleIntended) {
+    return {
+      allowed: false,
+      requiredPermission,
+      requiresVerification: false,
+      reason: `The required permission is not assigned to the ${canonicalRole.displayName} role: ${requiredPermission}`,
+    }
+  }
+
+  if (hasPermission(session, requiredPermission)) {
     return { allowed: true }
   }
 
-  const isRoleIntended = activeRole.intendedPermissions.includes(
-    action.requiredPermission,
-  )
   return {
     allowed: false,
-    requiredPermission: action.requiredPermission,
-    requiresVerification: isRoleIntended,
-    reason: isRoleIntended
-      ? `This action requires verified credentials for the ${activeRole.displayName} role. (${activeRole.securityRequirement})`
-      : `Your current session lacks the required permission: ${action.requiredPermission}`,
+    requiredPermission,
+    requiresVerification: true,
+    reason: `This action requires verified credentials for the ${canonicalRole.displayName} role. (${canonicalRole.securityRequirement})`,
   }
+}
+
+export function authorizePermission(
+  session: UserSession | null | undefined,
+  requiredPermission: Permission,
+  activeRole: RoleConfig,
+): AuthorizationResult {
+  return authorizeAction(
+    session,
+    {
+      id: `permission_${requiredPermission}`,
+      label: requiredPermission,
+      description: "Protected permission check",
+      icon: "lock",
+      requiredPermission,
+    },
+    activeRole,
+  )
 }
 
 /** Known role-specific aliases or legacy targets that map to real navigation items */
@@ -2975,4 +3046,3 @@ export function isDefaultDashboard(
 export function getPageKey(roleKey: RoleKey, navItemId: string): PageKey {
   return `${roleKey}:${navItemId}`
 }
-

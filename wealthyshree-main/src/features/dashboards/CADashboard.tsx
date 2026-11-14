@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,40 @@ import { ExportModal, EvidenceVerifyModal } from "../../components/modals"
 
 export interface CADashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function CADashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: CADashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "ca" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canConductAudit = hasPermission("conduct:statutory_audit")
+  const canSignReports = hasPermission("sign:audit_reports")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"calendar" | "documents">(
     "calendar",
   )
@@ -289,11 +314,12 @@ export function CADashboard({
             </span>
             <span>Managing 42 Client Entities · 14 Mandated Audits</span>
           </div>
-          <h1 className="hero-title">Priya Sharma, FCA</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Chartered Accountant & Senior Partner · Sharma & Associates LLP.
-            Statutory audits, multi-entity ledger reconciliations, balance sheet
-            certification, and corporate tax compliance.
+            Demo role: Chartered Accountant & Senior Partner · Demo
+            organization: Sharma & Associates LLP. Statutory audits,
+            multi-entity ledger reconciliations, balance sheet certification,
+            and corporate tax compliance.
           </p>
         </div>
         <div className="hero-actions">
@@ -308,15 +334,24 @@ export function CADashboard({
           <button
             type="button"
             className="button button--secondary"
+            disabled={!canSignReports}
+            title={!canSignReports ? permissionRequiredText : undefined}
             onClick={() => {
-              setSelectedEntityForVerify("Vance Global Holdings Ltd")
-              setShowVerifyModal(true)
+              runAuthorized("sign:audit_reports", () => {
+                setSelectedEntityForVerify("Vance Global Holdings Ltd")
+                setShowVerifyModal(true)
+              })
             }}
           >
             <Icon name="sparkle" size={16} />
             <span>AI Reconcile</span>
           </button>
         </div>
+        {!canSignReports && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </section>
 
       {/* 2. Seven Core Metric Cards */}
@@ -338,13 +373,19 @@ export function CADashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "new_audit") onNavigate("Clients")
-          else if (act.id === "auto_reconcile") {
-            setSelectedEntityForVerify("Vance Global Holdings Ltd")
-            setShowVerifyModal(true)
-          } else if (act.id === "export_3cd") setShowExportModal(true)
-          else onOpenAI()
+          const permission = act.requiredPermission ?? "conduct:statutory_audit"
+          runAuthorized(permission, () => {
+            if (act.id === "start_audit") onNavigate("Clients")
+            else if (act.id === "run_reconciliation") {
+              onNavigate("Reconciliation")
+            } else if (act.id === "sign_working_paper") {
+              setSelectedEntityForVerify("Vance Global Holdings Ltd")
+              setShowVerifyModal(true)
+            } else if (act.id === "tax_pack") setShowExportModal(true)
+            else onOpenAI()
+          })
         }}
       />
 
@@ -643,12 +684,18 @@ export function CADashboard({
                   <button
                     type="button"
                     className="button button--secondary button--sm"
+                    disabled={!canConductAudit}
+                    title={
+                      !canConductAudit ? permissionRequiredText : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Document Reminder",
-                        message: `Automated submission reminder dispatched to ${dr.client} for ${dr.document}.`,
-                        tone: "info",
-                      })
+                      runAuthorized("conduct:statutory_audit", () =>
+                        showToast({
+                          title: "Document Reminder",
+                          message: `Automated submission reminder dispatched to ${dr.client} for ${dr.document}.`,
+                          tone: "info",
+                        }),
+                      )
                     }
                   >
                     Send Reminder
@@ -657,6 +704,11 @@ export function CADashboard({
               </div>
             ))}
           </div>
+        )}
+        {!canConductAudit && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -776,6 +828,7 @@ export function CADashboard({
       {/* Interactive Modals */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:statutory_audit"
         onClose={() => setShowExportModal(false)}
         title="Export CA Practice Statutory Audit & Compliance Ledger"
         defaultFilename="wealthsphere_ca_audit_ledger"
@@ -803,17 +856,21 @@ export function CADashboard({
 
       <EvidenceVerifyModal
         isOpen={showVerifyModal}
+        isAuthorized={canSignReports}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowVerifyModal(false)}
         entity={selectedEntityForVerify}
         evidenceTitle="Form 3CD Statutory Ledger & GST Input Tax Credit Cross-Verification"
         evidenceId="CA-REV-2025-09"
-        onVerified={() => {
-          showToast({
-            title: "Reconciliation Verified",
-            message: `Cryptographic audit seal registered with UDIN for ${selectedEntityForVerify}.`,
-            tone: "success",
-          })
-        }}
+        onVerified={() =>
+          runAuthorized("sign:audit_reports", () =>
+            showToast({
+              title: "Reconciliation Verified",
+              message: `Cryptographic audit seal registered with UDIN for ${selectedEntityForVerify}.`,
+              tone: "success",
+            }),
+          )
+        }
       />
     </div>
   )

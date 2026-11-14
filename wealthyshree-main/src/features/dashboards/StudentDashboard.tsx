@@ -1,5 +1,6 @@
 import { useState } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -11,16 +12,41 @@ import type { MockGoal } from "../../services/mockData"
 
 export interface StudentDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function StudentDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: StudentDashboardProps) {
   const { showToast } = useToast()
+  const budgetAuthorization = authorizePermission(
+    userSession,
+    "write:student_budget",
+    roleConfig,
+  )
+  const runAuthorizedAction = (
+    permission: Permission,
+    action: () => void,
+  ) => {
+    if (!authorizePermission(userSession, permission, roleConfig).allowed) {
+      showToast({
+        title: "Access Restricted",
+        message: "This action requires verified permissions.",
+        tone: "warning",
+      })
+      return false
+    }
+
+    action()
+    return true
+  }
   const [activeTab, setActiveTab] =
     useState<"courses" | "assessments" | "achievements">("courses")
   const [showGoalModal, setShowGoalModal] = useState(false)
@@ -250,7 +276,7 @@ export function StudentDashboard({
               <span className="live-indicator-dot" /> 18-Day Learning Streak
             </span>
             <span className="header-role-pill">
-              <Icon name="book" size={13} /> Jordan Lee · Undergraduate Scholar
+              <Icon name="book" size={13} /> {userName} · Undergraduate Scholar
             </span>
           </div>
           <h1 className="header-greeting">Student Launchpad & Capability</h1>
@@ -279,6 +305,11 @@ export function StudentDashboard({
           </button>
         </div>
       </section>
+      {!budgetAuthorization.allowed && (
+        <p className="action-restriction-notice" role="note">
+          This action requires verified permissions.
+        </p>
+      )}
 
       {/* 2. Key Student Metrics */}
       <section className="metric-grid" aria-label="Student Financial KPIs">
@@ -344,7 +375,14 @@ export function StudentDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(action) => {
+          if (
+            action.requiredPermission &&
+            !runAuthorizedAction(action.requiredPermission, () => {})
+          ) {
+            return
+          }
           if (action.id === "log_expense") {
             showToast({
               title: "Expense Log",
@@ -628,7 +666,7 @@ export function StudentDashboard({
             </span>
             <h4 className="cert-title">Certified Wealth Foundations</h4>
             <p className="cert-sub">
-              Credential WS-284-19A · Issued to <b>Jordan Lee</b> on 18 April
+              Credential WS-284-19A · Issued to <b>{userName}</b> on 18 April
               2025 · Verified by WealthSphere Academic Council
             </p>
           </div>
@@ -651,7 +689,17 @@ export function StudentDashboard({
           <button
             type="button"
             className="button button--secondary button--sm"
-            onClick={() => setShowGoalModal(true)}
+            onClick={() =>
+              runAuthorizedAction("write:student_budget", () =>
+                setShowGoalModal(true),
+              )
+            }
+            disabled={!budgetAuthorization.allowed}
+            title={
+              budgetAuthorization.allowed
+                ? undefined
+                : "This action requires verified permissions."
+            }
           >
             <Icon name="plus" size={14} />
             <span>New Savings Goal</span>
@@ -709,33 +757,40 @@ export function StudentDashboard({
 
       <CreateGoalModal
         isOpen={showGoalModal}
+        isAuthorized={budgetAuthorization.allowed}
+        onUnauthorized={() =>
+          runAuthorizedAction("write:student_budget", () => {})
+        }
         onClose={() => setShowGoalModal(false)}
         onGoalAdded={(goal: MockGoal) => {
-          setGoalsList((prev) => [
-            {
-              id: goal.id,
-              name: goal.name,
-              category: goal.category,
-              current: `$${goal.currentAmount.toLocaleString()}`,
-              target: `$${goal.targetAmount.toLocaleString()}`,
-              pct: Math.min(
-                100,
-                Math.round((goal.currentAmount / goal.targetAmount) * 100),
-              ),
-              status: "In Progress",
-            },
-            ...prev,
-          ])
-          showToast({
-            title: "Savings Goal Created",
-            message: `Goal "${goal.name}" established with target $${goal.targetAmount.toLocaleString()}.`,
-            tone: "success",
+          runAuthorizedAction("write:student_budget", () => {
+            setGoalsList((prev) => [
+              {
+                id: goal.id,
+                name: goal.name,
+                category: goal.category,
+                current: `$${goal.currentAmount.toLocaleString()}`,
+                target: `$${goal.targetAmount.toLocaleString()}`,
+                pct: Math.min(
+                  100,
+                  Math.round((goal.currentAmount / goal.targetAmount) * 100),
+                ),
+                status: "In Progress",
+              },
+              ...prev,
+            ])
+            showToast({
+              title: "Savings Goal Created",
+              message: `Goal "${goal.name}" established with target $${goal.targetAmount.toLocaleString()}.`,
+              tone: "success",
+            })
           })
         }}
       />
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:student_loans"
         onClose={() => setShowExportModal(false)}
         title="Export Education Debt & Aid Schedule"
         defaultFilename="student_debt_aid_schedule.csv"

@@ -6,12 +6,16 @@ import type { MockInsuranceClaim } from "../../services/mockData"
 
 export interface SubmitClaimModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  onUnauthorized?: () => void
   onClose: () => void
   onClaimSubmitted?: (claim: MockInsuranceClaim) => void
 }
 
 export function SubmitClaimModal({
   isOpen,
+  isAuthorized = false,
+  onUnauthorized,
   onClose,
   onClaimSubmitted,
 }: SubmitClaimModalProps) {
@@ -46,6 +50,10 @@ export function SubmitClaimModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAuthorized) {
+      onUnauthorized?.()
+      return
+    }
     if (!validate()) return
 
     setIsSubmitting(true)
@@ -101,6 +109,11 @@ export function SubmitClaimModal({
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
+          {!isAuthorized && (
+            <div className="modal-info-callout" role="alert">
+              This action requires verified permissions.
+            </div>
+          )}
           <div className="form-group">
             <label htmlFor="claim-client" className="form-label">
               Insured Client or Entity <span className="req">*</span>
@@ -115,7 +128,7 @@ export function SubmitClaimModal({
                 setClient(e.target.value)
                 if (errors.client) setErrors({ ...errors, client: "" })
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             />
             {errors.client && (
               <span className="form-error">{errors.client}</span>
@@ -132,7 +145,7 @@ export function SubmitClaimModal({
                 className="form-select"
                 value={policyType}
                 onChange={(e) => setPolicyType(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               >
                 <option value="Comprehensive Health">
                   Comprehensive Health
@@ -162,7 +175,7 @@ export function SubmitClaimModal({
                   setAmount(e.target.value)
                   if (errors.amount) setErrors({ ...errors, amount: "" })
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               {errors.amount && (
                 <span className="form-error">{errors.amount}</span>
@@ -179,7 +192,7 @@ export function SubmitClaimModal({
               className="form-select"
               value={adjuster}
               onChange={(e) => setAdjuster(e.target.value)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               <option value="Zurich Syndicate Lead">
                 Zurich Syndicate Lead
@@ -213,7 +226,7 @@ export function SubmitClaimModal({
                 if (errors.description)
                   setErrors({ ...errors, description: "" })
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             />
             {errors.description && (
               <span className="form-error">{errors.description}</span>
@@ -241,7 +254,7 @@ export function SubmitClaimModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               {isSubmitting ? (
                 <>

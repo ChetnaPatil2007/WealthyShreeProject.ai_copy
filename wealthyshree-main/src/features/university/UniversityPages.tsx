@@ -4,11 +4,14 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals"
+import { authorizePermission, ROLE_CONFIGURATIONS } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface UniversityPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -75,9 +78,35 @@ export function UniversityModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: UniversityPageProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "university" &&
+    authorizePermission(
+      userSession,
+      permission,
+      ROLE_CONFIGURATIONS.university,
+    ).allowed
+  const canManageCampusEvents = hasPermission("manage:campus_events")
+  const canIssueCredentials = hasPermission("issue:academic_credentials")
+  const canWriteUniversitySettings = hasPermission("write:university_settings")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [showExportModal, setShowExportModal] = useState(false)
 
   // 1. Students State
@@ -300,20 +329,23 @@ export function UniversityModulePage({
 
   // RSVP handler
   const handleRsvpEvent = (evtId: string) => {
-    setEvents((prev) =>
-      prev.map((e) =>
-        e.id === evtId
-          ? {
-              ...e,
-              registeredCount: Math.min(e.capacity, e.registeredCount + 1),
-            }
-          : e,
-      ),
-    )
-    showToast({
-      title: "Event RSVP Confirmed",
-      message: "Student seat reserved. Digital badge pass issued to university portal.",
-      tone: "success",
+    runAuthorized("manage:campus_events", () => {
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === evtId
+            ? {
+                ...e,
+                registeredCount: Math.min(e.capacity, e.registeredCount + 1),
+              }
+            : e,
+        ),
+      )
+      showToast({
+        title: "Event RSVP Confirmed",
+        message:
+          "Student seat reserved. Digital badge pass issued to university portal.",
+        tone: "success",
+      })
     })
   }
 
@@ -374,12 +406,17 @@ export function UniversityModulePage({
           <button
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            disabled={!canIssueCredentials}
+            title={!canIssueCredentials ? permissionRequiredText : undefined}
             onClick={() => {
-              showToast({
-                title: "Credentials Minted (Simulated)",
-                message: "Issued 420 blockchain-verifiable collegiate micro-credentials to students.",
-                tone: "success",
-              })
+              runAuthorized("issue:academic_credentials", () =>
+                showToast({
+                  title: "Credentials Minted (Simulated)",
+                  message:
+                    "Issued 420 blockchain-verifiable collegiate micro-credentials to students.",
+                  tone: "success",
+                }),
+              )
             }}
           >
             <Icon name="sparkle" size={15} />
@@ -387,6 +424,11 @@ export function UniversityModulePage({
           </button>
         </div>
       </div>
+      {!canIssueCredentials && (
+        <p className="action-restriction-notice" role="note">
+          {permissionRequiredText}
+        </p>
+      )}
 
       {/* 1. STUDENTS */}
       {navId === "students" && (
@@ -976,6 +1018,12 @@ export function UniversityModulePage({
                       <button
                         className="btn btn-outline"
                         style={{ fontSize: "11px", padding: "4px 8px" }}
+                        disabled={!canManageCampusEvents}
+                        title={
+                          !canManageCampusEvents
+                            ? permissionRequiredText
+                            : undefined
+                        }
                         onClick={() => handleRsvpEvent(row.id)}
                       >
                         Reserve Seat
@@ -985,6 +1033,11 @@ export function UniversityModulePage({
                 },
               ]}
             />
+            {!canManageCampusEvents && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1167,7 +1220,12 @@ export function UniversityModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Passing Mastery Benchmark Threshold
                   </label>
-                  <select className="select" defaultValue="80" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="80"
+                    style={{ width: "100%" }}
+                    disabled={!canWriteUniversitySettings}
+                  >
                     <option value="70">70% Standard Passing (C-)</option>
                     <option value="80">80% Proficiency Passing (B) (Current)</option>
                     <option value="90">90% Honors Mastery (A)</option>
@@ -1178,15 +1236,29 @@ export function UniversityModulePage({
                   className="btn btn-outline"
                   style={{ marginTop: "8px", fontSize: "12px" }}
                   onClick={() => {
-                    showToast({
-                      title: "Settings Saved",
-                      message: "Academic grading parameters and semester deadlines updated.",
-                      tone: "success",
-                    })
+                    runAuthorized("write:university_settings", () =>
+                      showToast({
+                        title: "Settings Saved",
+                        message:
+                          "Academic grading parameters and semester deadlines updated.",
+                        tone: "success",
+                      }),
+                    )
                   }}
+                  disabled={!canWriteUniversitySettings}
+                  title={
+                    !canWriteUniversitySettings
+                      ? permissionRequiredText
+                      : undefined
+                  }
                 >
                   Save Academic Parameters
                 </button>
+                {!canWriteUniversitySettings && (
+                  <p className="action-restriction-notice" role="note">
+                    {permissionRequiredText}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1231,6 +1303,7 @@ export function UniversityModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:scholarship_disbursements"
         onClose={() => setShowExportModal(false)}
         title="Export Academic Financial Data"
         defaultFilename="University_Academic_Finance_Report"

@@ -4,11 +4,14 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals"
+import { authorizePermission, ROLE_CONFIGURATIONS } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface FamilyOfficePageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -89,9 +92,34 @@ export function FamilyOfficeModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: FamilyOfficePageProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "family_office" &&
+    authorizePermission(
+      userSession,
+      permission,
+      ROLE_CONFIGURATIONS.family_office,
+    ).allowed
+  const canWriteFamilyGroup = hasPermission("write:family_group")
+  const canApproveCapitalCalls = hasPermission("approve:capital_calls")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [showExportModal, setShowExportModal] = useState(false)
 
   // 1. Family Members State
@@ -430,31 +458,37 @@ export function FamilyOfficeModulePage({
 
   // Handlers
   const handleFundCapitalCall = (invId: string) => {
-    setInvestments((prev) =>
-      prev.map((i) =>
-        i.id === invId
-          ? {
-              ...i,
-              fundedCapital: i.committedCapital,
-              unfundedCommitment: 0,
-              status: "Performing",
-            }
-          : i,
-      ),
-    )
-    showToast({
-      title: "Capital Call Disbursed (Simulated)",
-      message: "Draw authorization verified and wired via Delaware Trust liquidity sleeve.",
-      tone: "success",
+    runAuthorized("approve:capital_calls", () => {
+      setInvestments((prev) =>
+        prev.map((i) =>
+          i.id === invId
+            ? {
+                ...i,
+                fundedCapital: i.committedCapital,
+                unfundedCommitment: 0,
+                status: "Performing",
+              }
+            : i,
+        ),
+      )
+      showToast({
+        title: "Capital Call Disbursed (Simulated)",
+        message:
+          "Draw authorization verified and wired via Delaware Trust liquidity sleeve.",
+        tone: "success",
+      })
     })
   }
 
   const handleConveneCouncil = () => {
-    showToast({
-      title: "Family Council Convened",
-      message: "Formal quorum notices and voting resolutions dispatched to all G1, G2 & G3 trustees.",
-      tone: "info",
-    })
+    runAuthorized("write:family_group", () =>
+      showToast({
+        title: "Family Council Convened",
+        message:
+          "Formal quorum notices and voting resolutions dispatched to all G1, G2 & G3 trustees.",
+        tone: "info",
+      }),
+    )
   }
 
   // Filtered members
@@ -509,6 +543,8 @@ export function FamilyOfficeModulePage({
           <button
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            disabled={!canWriteFamilyGroup}
+            title={!canWriteFamilyGroup ? permissionRequiredText : undefined}
             onClick={handleConveneCouncil}
           >
             <Icon name="family" size={15} />
@@ -516,6 +552,11 @@ export function FamilyOfficeModulePage({
           </button>
         </div>
       </div>
+      {!canWriteFamilyGroup && (
+        <p className="action-restriction-notice" role="note">
+          {permissionRequiredText}
+        </p>
+      )}
 
       {/* RENDER BY NAV ID */}
 
@@ -894,6 +935,12 @@ export function FamilyOfficeModulePage({
                         <button
                           className="btn btn-primary"
                           style={{ fontSize: "11px", padding: "4px 8px" }}
+                          disabled={!canApproveCapitalCalls}
+                          title={
+                            !canApproveCapitalCalls
+                              ? permissionRequiredText
+                              : undefined
+                          }
                           onClick={() => handleFundCapitalCall(row.id)}
                         >
                           Disburse Draw (Simulated)
@@ -904,6 +951,11 @@ export function FamilyOfficeModulePage({
                 },
               ]}
             />
+            {!canApproveCapitalCalls && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1602,7 +1654,12 @@ export function FamilyOfficeModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Major Capital Expenditure Quorum
                   </label>
-                  <select className="select" defaultValue="75" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="75"
+                    style={{ width: "100%" }}
+                    disabled={!canWriteFamilyGroup}
+                  >
                     <option value="66">66.7% Supermajority Approval</option>
                     <option value="75">75% Supermajority Approval (Current)</option>
                     <option value="100">100% Unanimous Family Council</option>
@@ -1616,7 +1673,12 @@ export function FamilyOfficeModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Next-Gen Voting Activation Age
                   </label>
-                  <select className="select" defaultValue="25" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="25"
+                    style={{ width: "100%" }}
+                    disabled={!canWriteFamilyGroup}
+                  >
                     <option value="21">Age 21 (Associate)</option>
                     <option value="25">Age 25 with Board Observer status (Current)</option>
                     <option value="30">Age 30 with Full Fiduciary Seat</option>
@@ -1662,15 +1724,27 @@ export function FamilyOfficeModulePage({
                   className="btn btn-outline"
                   style={{ marginTop: "8px", fontSize: "12px" }}
                   onClick={() => {
-                    showToast({
-                      title: "Settings Saved",
-                      message: "Family Office governance rules and security policies updated.",
-                      tone: "success",
-                    })
+                    runAuthorized("write:family_group", () =>
+                      showToast({
+                        title: "Settings Saved",
+                        message:
+                          "Family Office governance rules and security policies updated.",
+                        tone: "success",
+                      }),
+                    )
                   }}
+                  disabled={!canWriteFamilyGroup}
+                  title={
+                    !canWriteFamilyGroup ? permissionRequiredText : undefined
+                  }
                 >
                   Save Governance Policies
                 </button>
+                {!canWriteFamilyGroup && (
+                  <p className="action-restriction-notice" role="note">
+                    {permissionRequiredText}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1680,6 +1754,7 @@ export function FamilyOfficeModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:family_office_entities"
         onClose={() => setShowExportModal(false)}
         title="Export Family Office Vault Data"
         defaultFilename="Family_Office_Consolidated_Ledger"

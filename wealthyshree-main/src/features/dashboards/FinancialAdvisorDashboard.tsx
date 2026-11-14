@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -15,16 +16,38 @@ import type { MockClient } from "../../services/mockData"
 
 export interface FinancialAdvisorDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function FinancialAdvisorDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: FinancialAdvisorDashboardProps) {
   const { showToast } = useToast()
+  const hasPermission = (permission: Permission) =>
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canWriteClientRoster = hasPermission("write:client_roster")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeQueueTab, setActiveQueueTab] = useState<"meetings" | "reviews">(
     "meetings",
   )
@@ -297,18 +320,24 @@ export function FinancialAdvisorDashboard({
             </span>
             <span>Practice AUM: $148.6M across 84 households</span>
           </div>
-          <h1 className="hero-title">Marcus Sterling, CFP®</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Senior Wealth Advisor · Sterling Private Advisory. Comprehensive
-            portfolio governance, fiduciary planning reviews, and client wealth
-            trajectory monitoring.
+            Demo role: Senior Wealth Advisor · Demo organization: Sterling
+            Private Advisory. Comprehensive portfolio governance, fiduciary
+            planning reviews, and client wealth trajectory monitoring.
           </p>
         </div>
         <div className="hero-actions">
           <button
             type="button"
             className="button button--primary"
-            onClick={() => setShowOnboardModal(true)}
+            disabled={!canWriteClientRoster}
+            title={!canWriteClientRoster ? permissionRequiredText : undefined}
+            onClick={() =>
+              runAuthorized("write:client_roster", () =>
+                setShowOnboardModal(true),
+              )
+            }
           >
             <Icon name="plus" size={16} />
             <span>Onboard Client</span>
@@ -322,6 +351,11 @@ export function FinancialAdvisorDashboard({
             <span>AI Planning Assistant</span>
           </button>
         </div>
+        {!canWriteClientRoster && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </section>
 
       {/* 2. Seven Core Metric Cards */}
@@ -341,13 +375,24 @@ export function FinancialAdvisorDashboard({
 
       {/* 3. Quick Actions Component */}
       <QuickActions
-        actions={roleConfig.quickActions}
+        actions={roleConfig.quickActions.map((action) =>
+          action.id === "client_review"
+            ? { ...action, requiredPermission: "write:client_roster" as const }
+            : action,
+        )}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "new_proposal") setShowOnboardModal(true)
+          if (act.id === "new_proposal") {
+            runAuthorized("write:client_roster", () =>
+              setShowOnboardModal(true),
+            )
+          }
           else if (act.id === "client_review") {
-            setSelectedClientForMeeting("The Vance Family")
-            setShowScheduleModal(true)
+            runAuthorized("write:client_roster", () => {
+              setSelectedClientForMeeting("The Vance Family")
+              setShowScheduleModal(true)
+            })
           } else if (act.id === "suitability_check") onNavigate("Risk Profiles")
           else onOpenAI()
         }}
@@ -523,15 +568,19 @@ export function FinancialAdvisorDashboard({
                   <button
                     type="button"
                     className="button button--secondary button--sm"
-                    onClick={() => {
-                      setSelectedClientForMeeting(m.client)
-                      showToast({
-                        title: "Session Launch",
-                        message: `Launching workspace & scenario packet for ${m.client}...`,
-                        tone: "info",
+                    disabled={!canWriteClientRoster}
+                    title={!canWriteClientRoster ? permissionRequiredText : undefined}
+                    onClick={() =>
+                      runAuthorized("write:client_roster", () => {
+                        setSelectedClientForMeeting(m.client)
+                        showToast({
+                          title: "Session Launch",
+                          message: `Launching workspace & scenario packet for ${m.client}...`,
+                          tone: "info",
+                        })
+                        setShowScheduleModal(true)
                       })
-                      setShowScheduleModal(true)
-                    }}
+                    }
                   >
                     Launch Prep
                   </button>
@@ -690,50 +739,59 @@ export function FinancialAdvisorDashboard({
       {/* Interactive Modals */}
       <OnboardClientModal
         isOpen={showOnboardModal}
+        isAuthorized={canWriteClientRoster}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowOnboardModal(false)}
         onClientCreated={(c: MockClient) => {
-          setClients((prev) => [
-            {
-              id: c.id,
-              name: c.name,
-              tier: c.tier,
-              aum:
-                typeof c.aum === "number"
-                  ? `$${c.aum.toLocaleString()}`
-                  : String(c.aum),
-              planStatus: "Current (Draft)",
-              healthScore: 820,
-              lastReview: "Just now",
-              drift: "+0.0% (Target)",
-              driftTone: "success",
-              status: "Optimal",
-              statusTone: "success",
-            },
-            ...prev,
-          ])
-          showToast({
-            title: "Client Onboarded",
-            message: `Household "${c.name}" added to active roster.`,
-            tone: "success",
+          runAuthorized("write:client_roster", () => {
+            setClients((prev) => [
+              {
+                id: c.id,
+                name: c.name,
+                tier: c.tier,
+                aum:
+                  typeof c.aum === "number"
+                    ? `$${c.aum.toLocaleString()}`
+                    : String(c.aum),
+                planStatus: "Current (Draft)",
+                healthScore: 820,
+                lastReview: "Just now",
+                drift: "+0.0% (Target)",
+                driftTone: "success",
+                status: "Optimal",
+                statusTone: "success",
+              },
+              ...prev,
+            ])
+            showToast({
+              title: "Client Onboarded",
+              message: `Household "${c.name}" added to active roster.`,
+              tone: "success",
+            })
           })
         }}
       />
 
       <ScheduleMeetingModal
         isOpen={showScheduleModal}
+        isAuthorized={canWriteClientRoster}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowScheduleModal(false)}
         initialClient={selectedClientForMeeting}
         onMeetingScheduled={(m) => {
-          showToast({
-            title: "Meeting Scheduled",
-            message: `Review scheduled with ${m.client} on ${m.date} at ${m.time}.`,
-            tone: "success",
-          })
+          runAuthorized("write:client_roster", () =>
+            showToast({
+              title: "Meeting Scheduled",
+              message: `Review scheduled with ${m.client} on ${m.date} at ${m.time}.`,
+              tone: "success",
+            }),
+          )
         }}
       />
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:client_roster"
         onClose={() => setShowExportModal(false)}
         title="Export Advisory Practice Client Roster"
         defaultFilename="wealthsphere_financial_advisor_clients"

@@ -16,6 +16,7 @@ export interface TopbarProps {
   notifications: NotificationItem[]
   onNavigateHome?: () => void
   onNavigate?: (target: string) => void
+  onLogout: () => void
 }
 
 export function Topbar({
@@ -29,6 +30,7 @@ export function Topbar({
   notifications,
   onNavigateHome,
   onNavigate,
+  onLogout,
 }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -141,6 +143,17 @@ export function Topbar({
           >
             <Icon name="ai" size={16} />
             <span>Ask Sphere AI</span>
+          </button>
+
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={onLogout}
+            aria-label="Log out"
+            title="Log out"
+          >
+            <Icon name="arrow" size={14} />
+            <span>Log out</span>
           </button>
         </div>
       </header>

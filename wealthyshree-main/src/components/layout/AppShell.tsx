@@ -11,6 +11,7 @@ import {
   findNavItem,
   isDefaultDashboard,
 } from "../../config/roles"
+import { ExportAuthorizationProvider } from "../../config/ExportAuthorizationContext"
 import { getNotificationsForRole } from "../../config/notifications"
 import { getTableConfigForRole } from "../../config/roleTableData"
 import { Icon } from "../ui/Icon"
@@ -42,6 +43,9 @@ import { SuperAdminDashboard } from "../../features/dashboards/SuperAdminDashboa
 
 export interface AppShellProps {
   currentRoleName: string
+  userName: string
+  userEmail: string
+  userId: string
   onRoleChange: (newRole: string) => void
   renderModulePage: (
     roleKey: RoleConfig["key"],
@@ -49,17 +53,25 @@ export interface AppShellProps {
     navName: string,
     openAI: () => void,
     onNavigate: (target: string) => void,
+    userName: string,
+    userEmail: string,
+    userSession: UserSession,
   ) => React.ReactNode
   renderAIPanel: (onClose: () => void) => React.ReactNode
   onNavigateHome?: () => void
+  onLogout: () => void
 }
 
 export function AppShell({
   currentRoleName,
+  userName,
+  userEmail,
+  userId,
   onRoleChange,
   renderModulePage,
   renderAIPanel,
   onNavigateHome,
+  onLogout,
 }: AppShellProps) {
   const roleConfig: RoleConfig = useMemo(
     () => getRoleConfig(currentRoleName),
@@ -88,18 +100,16 @@ export function AppShell({
   // Zero-trust user session: selecting a role view DOES NOT grant permissions
   const userSession: UserSession = useMemo(
     () => ({
-      userId: "usr_active_session",
-      email: "alex.morgan@wealthsphere.ai",
+      userId,
+      email: userEmail,
       activeRoleKey: roleConfig.key,
-      verifiedRoleKeys: ["individual"], // Only individual credentials verified by default
-      grantedPermissions:
-        roleConfig.key === "individual"
-          ? roleConfig.defaultGrantedPermissions
-          : [], // Zero-Trust: Perspective only! Never escalate permissions via role selection
+      verifiedRoleKeys: [],
+      grantedPermissions: [],
       isDemoMode: true,
     }),
-    [roleConfig],
+    [roleConfig, userEmail, userId],
   )
+  const isPreviewMode = !userSession.verifiedRoleKeys.includes(roleConfig.key)
 
   const notifications = useMemo(
     () => getNotificationsForRole(roleConfig.key),
@@ -170,10 +180,32 @@ export function AppShell({
     [tableConfig],
   )
 
+  const exportPermissionByRole = {
+    individual: "export:own_assets",
+    family: "export:family_group",
+    student: "export:student_budget",
+    financial_advisor: "export:client_roster",
+    ca: "export:statutory_audit",
+    tax_consultant: "export:tax_returns",
+    investment_manager: "export:investment_portfolios",
+    insurance_advisor: "export:insurance_policies",
+    wealth_coach: "export:coaching_cohorts",
+    family_office: "export:family_office_entities",
+    private_bank: "export:private_bank_book",
+    corporate_hr: "export:workforce_wellness",
+    university: "export:scholarship_disbursements",
+    government_organizations: "export:public_funds",
+    auditors: "export:audit_reports",
+    super_admin: "export:platform_users",
+  } as const
+  const requiredExportPermission = exportPermissionByRole[roleConfig.key]
+
   return (
+    <ExportAuthorizationProvider value={{ roleConfig, userSession }}>
     <div className={`app-shell ${dark ? "dark" : ""}`}>
       <Sidebar
         roleConfig={roleConfig}
+        userName={userName}
         activeId={currentNavItem.id}
         onSelect={handleNavigate}
         open={sidebarOpen}
@@ -193,103 +225,148 @@ export function AppShell({
           notifications={notifications}
           onNavigateHome={onNavigateHome}
           onNavigate={handleNavigate}
+          onLogout={onLogout}
         />
 
         <main className="main-content">
+          <aside className="demo-data-notice" role="note">
+            {isPreviewMode && (
+              <>
+                <span className="badge badge--warning">PREVIEW MODE</span>{" "}
+                <span>
+                  {roleConfig.displayName} is not backend-verified. Privileged
+                  actions require verified permissions.
+                </span>
+                <br />
+              </>
+            )}
+            Demo data: organization names, role descriptions, business records,
+            and financial figures are illustrative until backend integration.
+          </aside>
           {isHomeTab ? (
             roleConfig.key === "individual" ? (
               <IndividualDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "family" ? (
               <FamilyDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "student" ? (
               <StudentDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "financial_advisor" ? (
               <FinancialAdvisorDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "ca" ? (
               <CADashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "tax_consultant" ? (
               <TaxConsultantDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "investment_manager" ? (
               <InvestmentManagerDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "insurance_advisor" ? (
               <InsuranceAdvisorDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "wealth_coach" ? (
               <WealthCoachDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "family_office" ? (
               <FamilyOfficeDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "private_bank" ? (
               <PrivateBankDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "corporate_hr" ? (
               <CorporateHRDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "university" ? (
               <UniversityDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "government_organizations" ? (
               <GovernmentDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "auditors" ? (
               <AuditorDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
+                userName={userName}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
             ) : roleConfig.key === "super_admin" ? (
               <SuperAdminDashboard
                 roleConfig={roleConfig}
+                userSession={userSession}
                 onNavigate={handleNavigate}
                 onOpenAI={() => setAiOpen(true)}
               />
@@ -298,6 +375,7 @@ export function AppShell({
                 {/* Dashboard Header */}
                 <DashboardHeader
                   roleConfig={roleConfig}
+                  userName={userName}
                   onPrimaryAction={() => {
                     const primary =
                       roleConfig.quickActions.find((a) => a.primary) ||
@@ -588,6 +666,15 @@ export function AppShell({
                       label: "Export CSV",
                       icon: "document",
                       onClick: () => setExportModalOpen(true),
+                      requiredPermission: requiredExportPermission,
+                      requiredActiveRole:
+                        roleConfig.key === "super_admin"
+                          ? "super_admin"
+                          : undefined,
+                      disabledMessage:
+                        roleConfig.key === "super_admin"
+                          ? "This action requires verified permissions."
+                          : undefined,
                     }}
                   />
                 </section>
@@ -600,6 +687,9 @@ export function AppShell({
               currentNavItem.name,
               () => setAiOpen(true),
               handleNavigate,
+              userName,
+              userEmail,
+              userSession,
             )
           )}
         </main>
@@ -652,8 +742,19 @@ export function AppShell({
           r.status || "",
         ])}
         defaultFilename={`${roleConfig.key}_table_export`}
+        requiredPermission={requiredExportPermission}
+        requiredActiveRole={
+          roleConfig.key === "super_admin" ? "super_admin" : undefined
+        }
+        authorizationRequiredForAllFormats={roleConfig.key === "super_admin"}
+        authorizationDeniedMessage={
+          roleConfig.key === "super_admin"
+            ? "This action requires verified permissions."
+            : undefined
+        }
       />
     </div>
+    </ExportAuthorizationProvider>
   )
 }
 

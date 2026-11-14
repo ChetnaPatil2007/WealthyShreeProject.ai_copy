@@ -1,15 +1,17 @@
 import React, { useState, useMemo } from "react"
+import type { Permission, UserSession } from "../../types/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals"
-import { getAllRoleConfigs } from "../../config/roles"
+import { authorizePermission, getAllRoleConfigs, getRoleConfig } from "../../config/roles"
 
 export interface SuperAdminPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -59,10 +61,39 @@ export function SuperAdminModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: SuperAdminPageProps) {
   const { showToast } = useToast()
   const [showExportModal, setShowExportModal] = useState(false)
+  const superAdminRole = getRoleConfig("super_admin")
+  const permissionRequiredText = "This action requires verified permissions."
+  const canPerform = (permission: Permission) =>
+    userSession.activeRoleKey === "super_admin" &&
+    superAdminRole.key === "super_admin" &&
+    authorizePermission(userSession, permission, superAdminRole).allowed
+  const privilegedPermissions: Permission[] = [
+    "manage:tenants",
+    "manage:rbac_roles",
+    "configure:ai_policies",
+    "configure:platform",
+    "rotate:platform_keys",
+    "export:system_telemetry",
+  ]
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Action blocked",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const blockIfUnauthorized = (permission: Permission) => {
+    if (canPerform(permission)) return false
+    notifyUnauthorized()
+    return true
+  }
+  const isCurrentUser = (id: string, email: string) =>
+    id === userSession.userId ||
+    email.trim().toLowerCase() === userSession.email.trim().toLowerCase()
 
   // 1. User Management State
   const [users, setUsers] = useState<PlatformUserItem[]>([
@@ -263,13 +294,20 @@ export function SuperAdminModulePage({
 
   // Handlers
   const handleToggleUserStatus = (userId: string) => {
+    if (blockIfUnauthorized("manage:rbac_roles")) return
+    const targetUser = users.find((user) => user.id === userId)
+    if (targetUser && isCurrentUser(targetUser.id, targetUser.email)) {
+      notifyUnauthorized()
+      return
+    }
+
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === userId) {
           const nextStatus = u.accountStatus === "Active" ? "Locked" : "Active"
           showToast({
-            title: `User ${nextStatus}`,
-            message: `Account status for ${u.email} changed to ${nextStatus}.`,
+            title: `User ${nextStatus} (Simulated)`,
+            message: `Demo only: local account status for ${u.email} changed to ${nextStatus}.`,
             tone: nextStatus === "Active" ? "success" : "warning",
           })
           return { ...u, accountStatus: nextStatus }
@@ -280,6 +318,12 @@ export function SuperAdminModulePage({
   }
 
   const handleTogglePermission = (roleKey: string, permKey: "read" | "write" | "approve" | "export" | "admin") => {
+    if (blockIfUnauthorized("manage:rbac_roles")) return
+    if (roleKey === "super_admin" || permKey === "admin") {
+      notifyUnauthorized()
+      return
+    }
+
     setRolePermissions((prev) => ({
       ...prev,
       [roleKey]: {
@@ -288,8 +332,8 @@ export function SuperAdminModulePage({
       },
     }))
     showToast({
-      title: "RBAC Matrix Updated",
-      message: `Permission [${permKey.toUpperCase()}] toggled for role "${roleKey}".`,
+      title: "RBAC Matrix Updated (Simulated)",
+      message: `Demo only: local permission [${permKey.toUpperCase()}] toggled for role "${roleKey}".`,
       tone: "info",
     })
   }
@@ -343,7 +387,13 @@ export function SuperAdminModulePage({
           <button
             className="btn btn-outline"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
-            onClick={() => setShowExportModal(true)}
+            disabled={!canPerform("export:system_telemetry")}
+            title={!canPerform("export:system_telemetry") ? permissionRequiredText : undefined}
+            onClick={() => {
+              if (!blockIfUnauthorized("export:system_telemetry")) {
+                setShowExportModal(true)
+              }
+            }}
           >
             <Icon name="document" size={15} />
             Export Admin Telemetry
@@ -351,11 +401,14 @@ export function SuperAdminModulePage({
           <button
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            disabled={!canPerform("rotate:platform_keys")}
+            title={!canPerform("rotate:platform_keys") ? permissionRequiredText : undefined}
             onClick={() => {
+              if (blockIfUnauthorized("rotate:platform_keys")) return
               showToast({
-                title: "KMS Master Key Rotated",
-                message: "Cryptographic KMS envelope key rotation triggered across all tenant partitions.",
-                tone: "success",
+                title: "Key Rotation Simulation",
+                message: "Demo only: no platform encryption keys were rotated.",
+                tone: "info",
               })
             }}
           >
@@ -364,6 +417,15 @@ export function SuperAdminModulePage({
           </button>
         </div>
       </div>
+      <p className="action-restriction-notice" role="note">
+        Preview data only: administrative controls are local simulations and do
+        not persist changes or call a backend.
+      </p>
+      {!privilegedPermissions.some(canPerform) && (
+        <p className="action-restriction-notice" role="note">
+          {permissionRequiredText}
+        </p>
+      )}
 
       {/* 1. USER MANAGEMENT */}
       {navId === "user_mgmt" && (
@@ -484,6 +546,16 @@ export function SuperAdminModulePage({
                       <button
                         className={`btn ${row.accountStatus === "Active" ? "btn-outline" : "btn-primary"}`}
                         style={{ fontSize: "11px", padding: "4px 8px" }}
+                        disabled={
+                          !canPerform("manage:rbac_roles") ||
+                          isCurrentUser(row.id, row.email)
+                        }
+                        title={
+                          !canPerform("manage:rbac_roles") ||
+                          isCurrentUser(row.id, row.email)
+                            ? permissionRequiredText
+                            : undefined
+                        }
                         onClick={() => handleToggleUserStatus(row.id)}
                       >
                         {row.accountStatus === "Active" ? "Lock Account" : "Unlock"}
@@ -516,7 +588,7 @@ export function SuperAdminModulePage({
                   Role-Based Access Control (RBAC) Entitlement Matrix
                 </h3>
                 <span className="card-sub">
-                  Fine-grained capability configuration across all 16 canonical platform roles.
+                  Preview-only local mock controls; changes do not alter session grants or persist role entitlements.
                 </span>
               </div>
               <span className="badge badge--gold">Zero-Trust Enforcement Active</span>
@@ -543,6 +615,12 @@ export function SuperAdminModulePage({
                     <input
                       type="checkbox"
                       checked={rolePermissions[row.key]?.read ?? true}
+                      disabled={!canPerform("manage:rbac_roles") || row.key === "super_admin"}
+                      title={
+                        !canPerform("manage:rbac_roles") || row.key === "super_admin"
+                          ? permissionRequiredText
+                          : undefined
+                      }
                       onChange={() => handleTogglePermission(row.key, "read")}
                     />
                   ),
@@ -554,6 +632,12 @@ export function SuperAdminModulePage({
                     <input
                       type="checkbox"
                       checked={rolePermissions[row.key]?.write ?? false}
+                      disabled={!canPerform("manage:rbac_roles") || row.key === "super_admin"}
+                      title={
+                        !canPerform("manage:rbac_roles") || row.key === "super_admin"
+                          ? permissionRequiredText
+                          : undefined
+                      }
                       onChange={() => handleTogglePermission(row.key, "write")}
                     />
                   ),
@@ -565,6 +649,12 @@ export function SuperAdminModulePage({
                     <input
                       type="checkbox"
                       checked={rolePermissions[row.key]?.approve ?? false}
+                      disabled={!canPerform("manage:rbac_roles") || row.key === "super_admin"}
+                      title={
+                        !canPerform("manage:rbac_roles") || row.key === "super_admin"
+                          ? permissionRequiredText
+                          : undefined
+                      }
                       onChange={() => handleTogglePermission(row.key, "approve")}
                     />
                   ),
@@ -576,6 +666,12 @@ export function SuperAdminModulePage({
                     <input
                       type="checkbox"
                       checked={rolePermissions[row.key]?.export ?? true}
+                      disabled={!canPerform("manage:rbac_roles") || row.key === "super_admin"}
+                      title={
+                        !canPerform("manage:rbac_roles") || row.key === "super_admin"
+                          ? permissionRequiredText
+                          : undefined
+                      }
                       onChange={() => handleTogglePermission(row.key, "export")}
                     />
                   ),
@@ -587,12 +683,19 @@ export function SuperAdminModulePage({
                     <input
                       type="checkbox"
                       checked={rolePermissions[row.key]?.admin ?? false}
+                      disabled
+                      title={permissionRequiredText}
                       onChange={() => handleTogglePermission(row.key, "admin")}
                     />
                   ),
                 },
               ]}
             />
+            {!canPerform("manage:rbac_roles") && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -653,11 +756,14 @@ export function SuperAdminModulePage({
               <button
                 className="btn btn-primary"
                 style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+                disabled={!canPerform("manage:tenants")}
+                title={!canPerform("manage:tenants") ? permissionRequiredText : undefined}
                 onClick={() => {
+                  if (blockIfUnauthorized("manage:tenants")) return
                   showToast({
-                    title: "Organization Provisioned (Simulated)",
-                    message: "Initialized isolated multi-tenant database enclave with dedicated KMS root keys.",
-                    tone: "success",
+                    title: "Organization Provisioning Simulation",
+                    message: "Demo only: no organization, database enclave, or KMS keys were provisioned.",
+                    tone: "info",
                   })
                 }}
               >
@@ -702,6 +808,10 @@ export function SuperAdminModulePage({
                 },
               ]}
             />
+            <p className="action-restriction-notice" role="note">
+              {permissionRequiredText} The Super Admin role and admin capability
+              cannot be changed from this interface.
+            </p>
           </div>
         </div>
       )}
@@ -876,6 +986,8 @@ export function SuperAdminModulePage({
                   type="text"
                   className="input"
                   defaultValue="192.168.1.0/24, 10.0.0.0/16, 204.14.23.0/22"
+                  disabled={!canPerform("manage:rbac_roles")}
+                  title={!canPerform("manage:rbac_roles") ? permissionRequiredText : undefined}
                   style={{ width: "100%" }}
                 />
               </div>
@@ -887,11 +999,16 @@ export function SuperAdminModulePage({
                 <select
                   className="select"
                   value={platformConfig.sessionTimeoutMins}
+                  disabled={!canPerform("manage:rbac_roles")}
+                  title={!canPerform("manage:rbac_roles") ? permissionRequiredText : undefined}
                   onChange={(e) =>
-                    setPlatformConfig((prev) => ({
-                      ...prev,
-                      sessionTimeoutMins: Number(e.target.value),
-                    }))
+                    {
+                      if (blockIfUnauthorized("manage:rbac_roles")) return
+                      setPlatformConfig((prev) => ({
+                        ...prev,
+                        sessionTimeoutMins: Number(e.target.value),
+                      }))
+                    }
                   }
                   style={{ width: "100%" }}
                 >
@@ -916,11 +1033,14 @@ export function SuperAdminModulePage({
               <button
                 className="btn btn-primary"
                 style={{ alignSelf: "flex-start", marginTop: "8px" }}
+                disabled={!canPerform("manage:rbac_roles")}
+                title={!canPerform("manage:rbac_roles") ? permissionRequiredText : undefined}
                 onClick={() => {
+                  if (blockIfUnauthorized("manage:rbac_roles")) return
                   showToast({
-                    title: "Access Control Policies Saved",
-                    message: "Zero-trust session timeouts and IP allowlists updated platform-wide.",
-                    tone: "success",
+                    title: "Access Control Policy Simulation",
+                    message: "Demo only: no platform access policies were changed.",
+                    tone: "info",
                   })
                 }}
               >
@@ -1022,11 +1142,16 @@ export function SuperAdminModulePage({
                 <input
                   type="checkbox"
                   checked={platformConfig.maintenanceMode}
+                  disabled={!canPerform("configure:platform")}
+                  title={!canPerform("configure:platform") ? permissionRequiredText : undefined}
                   onChange={(e) =>
-                    setPlatformConfig((prev) => ({
-                      ...prev,
-                      maintenanceMode: e.target.checked,
-                    }))
+                    {
+                      if (blockIfUnauthorized("configure:platform")) return
+                      setPlatformConfig((prev) => ({
+                        ...prev,
+                        maintenanceMode: e.target.checked,
+                      }))
+                    }
                   }
                 />
               </div>
@@ -1043,11 +1168,16 @@ export function SuperAdminModulePage({
                 <input
                   type="checkbox"
                   checked={platformConfig.readReplicaPooling}
+                  disabled={!canPerform("configure:platform")}
+                  title={!canPerform("configure:platform") ? permissionRequiredText : undefined}
                   onChange={(e) =>
-                    setPlatformConfig((prev) => ({
-                      ...prev,
-                      readReplicaPooling: e.target.checked,
-                    }))
+                    {
+                      if (blockIfUnauthorized("configure:platform")) return
+                      setPlatformConfig((prev) => ({
+                        ...prev,
+                        readReplicaPooling: e.target.checked,
+                      }))
+                    }
                   }
                 />
               </div>
@@ -1055,11 +1185,14 @@ export function SuperAdminModulePage({
               <button
                 className="btn btn-primary"
                 style={{ alignSelf: "flex-start", marginTop: "8px" }}
+                disabled={!canPerform("configure:platform")}
+                title={!canPerform("configure:platform") ? permissionRequiredText : undefined}
                 onClick={() => {
+                  if (blockIfUnauthorized("configure:platform")) return
                   showToast({
-                    title: "Platform Configuration Updated",
-                    message: "Runtime parameters and replica distribution updated across all clusters.",
-                    tone: "success",
+                    title: "Platform Configuration Simulation",
+                    message: "Demo only: no runtime or replica settings were changed.",
+                    tone: "info",
                   })
                 }}
               >
@@ -1089,11 +1222,16 @@ export function SuperAdminModulePage({
                 <select
                   className="select"
                   value={aiConfig.modelProvider}
+                  disabled={!canPerform("configure:ai_policies")}
+                  title={!canPerform("configure:ai_policies") ? permissionRequiredText : undefined}
                   onChange={(e) =>
-                    setAiConfig((prev) => ({
-                      ...prev,
-                      modelProvider: e.target.value,
-                    }))
+                    {
+                      if (blockIfUnauthorized("configure:ai_policies")) return
+                      setAiConfig((prev) => ({
+                        ...prev,
+                        modelProvider: e.target.value,
+                      }))
+                    }
                   }
                   style={{ width: "100%" }}
                 >
@@ -1115,11 +1253,16 @@ export function SuperAdminModulePage({
                   max="1"
                   step="0.05"
                   value={aiConfig.temperature}
+                  disabled={!canPerform("configure:ai_policies")}
+                  title={!canPerform("configure:ai_policies") ? permissionRequiredText : undefined}
                   onChange={(e) =>
-                    setAiConfig((prev) => ({
-                      ...prev,
-                      temperature: parseFloat(e.target.value),
-                    }))
+                    {
+                      if (blockIfUnauthorized("configure:ai_policies")) return
+                      setAiConfig((prev) => ({
+                        ...prev,
+                        temperature: parseFloat(e.target.value),
+                      }))
+                    }
                   }
                   style={{ width: "100%" }}
                 />
@@ -1137,11 +1280,16 @@ export function SuperAdminModulePage({
                 <input
                   type="checkbox"
                   checked={aiConfig.strictHumanInTheLoop}
+                  disabled={!canPerform("configure:ai_policies")}
+                  title={!canPerform("configure:ai_policies") ? permissionRequiredText : undefined}
                   onChange={(e) =>
-                    setAiConfig((prev) => ({
-                      ...prev,
-                      strictHumanInTheLoop: e.target.checked,
-                    }))
+                    {
+                      if (blockIfUnauthorized("configure:ai_policies")) return
+                      setAiConfig((prev) => ({
+                        ...prev,
+                        strictHumanInTheLoop: e.target.checked,
+                      }))
+                    }
                   }
                 />
               </div>
@@ -1149,11 +1297,14 @@ export function SuperAdminModulePage({
               <button
                 className="btn btn-primary"
                 style={{ alignSelf: "flex-start", marginTop: "8px" }}
+                disabled={!canPerform("configure:ai_policies")}
+                title={!canPerform("configure:ai_policies") ? permissionRequiredText : undefined}
                 onClick={() => {
+                  if (blockIfUnauthorized("configure:ai_policies")) return
                   showToast({
-                    title: "AI Configuration Saved",
-                    message: "Model safety guardrails and temperature parameters updated.",
-                    tone: "success",
+                    title: "AI Configuration Simulation",
+                    message: "Demo only: no AI policy settings were changed.",
+                    tone: "info",
                   })
                 }}
               >
@@ -1256,6 +1407,8 @@ export function SuperAdminModulePage({
                     type="text"
                     className="input"
                     defaultValue="WealthSphere.ai Multi-Persona Platform"
+                    disabled={!canPerform("configure:platform")}
+                    title={!canPerform("configure:platform") ? permissionRequiredText : undefined}
                     style={{ width: "100%" }}
                   />
                 </div>
@@ -1268,6 +1421,8 @@ export function SuperAdminModulePage({
                     type="text"
                     className="input"
                     defaultValue="app.wealthsphere.ai"
+                    disabled={!canPerform("configure:platform")}
+                    title={!canPerform("configure:platform") ? permissionRequiredText : undefined}
                     style={{ width: "100%" }}
                   />
                 </div>
@@ -1275,11 +1430,14 @@ export function SuperAdminModulePage({
                 <button
                   className="btn btn-outline"
                   style={{ alignSelf: "flex-start", fontSize: "12px" }}
+                  disabled={!canPerform("configure:platform")}
+                  title={!canPerform("configure:platform") ? permissionRequiredText : undefined}
                   onClick={() => {
+                    if (blockIfUnauthorized("configure:platform")) return
                     showToast({
-                      title: "Settings Saved",
-                      message: "Platform branding settings updated.",
-                      tone: "success",
+                      title: "Branding Settings Simulation",
+                      message: "Demo only: no platform branding settings were changed.",
+                      tone: "info",
                     })
                   }}
                 >
@@ -1329,26 +1487,28 @@ export function SuperAdminModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:system_telemetry"
+        requiredActiveRole="super_admin"
+        authorizationRequiredForAllFormats
+        authorizationDeniedMessage={permissionRequiredText}
         onClose={() => setShowExportModal(false)}
         title="Export Global Platform Telemetry"
         defaultFilename="Super_Admin_Global_Platform_Telemetry"
         headers={[
-          "User Name",
-          "Email",
-          "Role",
-          "Organization",
-          "MFA Status",
-          "Account Status",
-          "Last Login",
+          "Timestamp",
+          "Event Type",
+          "Severity",
+          "Source IP",
+          "Location",
+          "Details",
         ]}
-        data={users.map((u) => [
-          u.name,
-          u.email,
-          u.role,
-          u.organization,
-          u.mfaStatus,
-          u.accountStatus,
-          u.lastLogin,
+        data={securityLogs.map((event) => [
+          event.timestamp,
+          event.eventType,
+          event.severity,
+          event.sourceIp,
+          event.location,
+          event.details,
         ])}
       />
     </div>

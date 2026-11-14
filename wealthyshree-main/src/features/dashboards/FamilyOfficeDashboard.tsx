@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { ExportModal } from "../../components/modals"
 
 export interface FamilyOfficeDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function FamilyOfficeDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: FamilyOfficeDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "family_office" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canApproveCapitalCalls = hasPermission("approve:capital_calls")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"governance" | "capitalCalls">(
     "governance",
   )
@@ -285,11 +309,13 @@ export function FamilyOfficeDashboard({
               Managing $84.5M Across 3 Generations & 14 Legal Entities
             </span>
           </div>
-          <h1 className="hero-title">Arthur Pendelton & Family</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Executive Managing Director · Pendelton Family Office. Consolidated
-            multi-entity balance sheet, direct private equity, real estate
-            holdings, family governance, and multi-generational succession.
+            Demo family record: Arthur Pendelton & Family · Demo role: Executive
+            Managing Director · Demo organization: Pendelton Family Office.
+            Consolidated multi-entity balance sheet, direct private equity, real
+            estate holdings, family governance, and multi-generational
+            succession.
           </p>
         </div>
         <div className="hero-actions">
@@ -331,18 +357,24 @@ export function FamilyOfficeDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "convene_council") onNavigate("Family Members")
-          else if (act.id === "fund_capital_call") {
-            showToast({
-              title: "Capital Call Authorized",
-              message:
-                "Disbursing $450,000 for Sequoia Growth Fund VI via Delaware Dynasty Trust liquidity sleeve.",
-              tone: "success",
-            })
-          } else if (act.id === "review_entities") onNavigate("Trusts")
-          else if (act.id === "grant_approval") onNavigate("Estate Planning")
-          else onOpenAI()
+          const permission = act.requiredPermission
+          const action = () => {
+            if (act.id === "convene_council") onNavigate("Family Members")
+            else if (act.id === "fund_capital_call") {
+              showToast({
+                title: "Capital Call Authorized",
+                message:
+                  "Disbursing $450,000 for Sequoia Growth Fund VI via Delaware Dynasty Trust liquidity sleeve.",
+                tone: "success",
+              })
+            } else if (act.id === "review_entities") onNavigate("Trusts")
+            else if (act.id === "grant_approval") onNavigate("Estate Planning")
+            else onOpenAI()
+          }
+          if (permission) runAuthorized(permission, action)
+          else action()
         }}
       />
 
@@ -933,12 +965,20 @@ export function FamilyOfficeDashboard({
                   <button
                     type="button"
                     className="button button--sm button--secondary"
+                    disabled={!canApproveCapitalCalls}
+                    title={
+                      !canApproveCapitalCalls
+                        ? permissionRequiredText
+                        : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Wire Authorized",
-                        message: `Funding ${cc.callAmount} for ${cc.fundName} from ${cc.sourceEntity}. Wire dispatched to custodian.`,
-                        tone: "success",
-                      })
+                      runAuthorized("approve:capital_calls", () =>
+                        showToast({
+                          title: "Wire Authorized",
+                          message: `Funding ${cc.callAmount} for ${cc.fundName} from ${cc.sourceEntity}. Wire dispatched to custodian.`,
+                          tone: "success",
+                        }),
+                      )
                     }
                   >
                     Authorize Wire
@@ -947,6 +987,11 @@ export function FamilyOfficeDashboard({
               </div>
             ))}
           </div>
+        )}
+        {!canApproveCapitalCalls && activeTab === "capitalCalls" && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -1067,6 +1112,7 @@ export function FamilyOfficeDashboard({
       {/* Interactive Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:family_office_entities"
         onClose={() => setShowExportModal(false)}
         title="Export Consolidated Family Office Balance Sheet"
         defaultFilename="pendelton_family_office_balance_sheet"

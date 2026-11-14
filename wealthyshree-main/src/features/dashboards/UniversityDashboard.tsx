@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { ExportModal } from "../../components/modals"
 
 export interface UniversityDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function UniversityDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: UniversityDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "university" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canManageCampusEvents = hasPermission("manage:campus_events")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"courses" | "events">("courses")
   const [cohortFilter, setCohortFilter] =
     useState<"all" | "undergrad" | "grad" | "honors">("all")
@@ -271,12 +295,12 @@ export function UniversityDashboard({
               Educating 14,850 Learners Across 12 Colleges & 28 Courses
             </span>
           </div>
-          <h1 className="hero-title">Dr. Robert Vance</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Vice Chancellor & Academic Trustee · University Academic Console.
-            Campus financial literacy curriculum, student debt mitigation,
-            accredited personal finance modules, verified assessments, and
-            blockchain micro-credentials.
+            Demo role: Vice Chancellor & Academic Trustee · Demo organization:
+            University Academic Console. Campus financial literacy curriculum,
+            student debt mitigation, accredited personal finance modules,
+            verified assessments, and blockchain micro-credentials.
           </p>
         </div>
         <div className="hero-actions">
@@ -318,14 +342,22 @@ export function UniversityDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "publish_course") onNavigate("Courses")
-          else if (act.id === "schedule_event") onNavigate("Events")
-          else if (act.id === "issue_diploma_creds")
-            onNavigate("Certifications")
-          else if (act.id === "export_analytics") {
-            setShowExportModal(true)
-          } else onOpenAI()
+          const action = () => {
+            if (act.id === "publish_course") onNavigate("Courses")
+            else if (act.id === "schedule_event") onNavigate("Events")
+            else if (act.id === "issue_diploma_creds")
+              onNavigate("Certifications")
+            else if (act.id === "export_analytics")
+              setShowExportModal(true)
+            else onOpenAI()
+          }
+          if (act.requiredPermission) {
+            runAuthorized(act.requiredPermission, action)
+          } else {
+            action()
+          }
         }}
       />
 
@@ -803,12 +835,20 @@ export function UniversityDashboard({
                   <button
                     type="button"
                     className="button button--sm button--primary"
+                    disabled={!canManageCampusEvents}
+                    title={
+                      !canManageCampusEvents
+                        ? permissionRequiredText
+                        : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Campus Notification Broadcasted",
-                        message: `Broadcasting campus reminder & registration sync for "${ev.title}".`,
-                        tone: "success",
-                      })
+                      runAuthorized("manage:campus_events", () =>
+                        showToast({
+                          title: "Campus Notification Broadcasted",
+                          message: `Broadcasting campus reminder & registration sync for "${ev.title}".`,
+                          tone: "success",
+                        }),
+                      )
                     }
                   >
                     Send Invitation
@@ -817,6 +857,11 @@ export function UniversityDashboard({
               </div>
             ))}
           </div>
+        )}
+        {!canManageCampusEvents && activeTab === "events" && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -927,6 +972,7 @@ export function UniversityDashboard({
       {/* Interactive Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:education_reports"
         onClose={() => setShowExportModal(false)}
         title="Export Academic Financial Capability Accreditation Report"
         defaultFilename="university_financial_literacy_accreditation"

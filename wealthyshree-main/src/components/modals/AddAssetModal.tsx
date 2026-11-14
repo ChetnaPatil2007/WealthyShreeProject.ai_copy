@@ -6,12 +6,16 @@ import type { MockAsset } from "../../services/mockData"
 
 export interface AddAssetModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  onUnauthorized?: () => void
   onClose: () => void
   onAssetAdded?: (asset: MockAsset) => void
 }
 
 export function AddAssetModal({
   isOpen,
+  isAuthorized = false,
+  onUnauthorized,
   onClose,
   onAssetAdded,
 }: AddAssetModalProps) {
@@ -47,6 +51,10 @@ export function AddAssetModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAuthorized) {
+      onUnauthorized?.()
+      return
+    }
     if (!validate()) return
 
     setIsSubmitting(true)
@@ -104,6 +112,11 @@ export function AddAssetModal({
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
+          {!isAuthorized && (
+            <div className="modal-info-callout" role="alert">
+              This action requires verified permissions.
+            </div>
+          )}
           <div className="form-group">
             <label htmlFor="asset-name" className="form-label">
               Asset or Holding Name <span className="req">*</span>
@@ -231,7 +244,7 @@ export function AddAssetModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthorized}
             >
               {isSubmitting ? (
                 <>

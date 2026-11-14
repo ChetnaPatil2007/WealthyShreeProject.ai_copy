@@ -26,8 +26,24 @@ export function QuickActions({
     type: "success" | "warning"
   } | null>(null)
 
+  const authorizeQuickAction = (action: RoleQuickAction) => {
+    const authorization = authorizeAction(userSession, action, roleConfig)
+    if (
+      roleConfig.key === "super_admin" &&
+      action.requiredPermission &&
+      userSession?.activeRoleKey !== "super_admin"
+    ) {
+      return {
+        ...authorization,
+        allowed: false,
+        reason: "This action requires verified permissions.",
+      }
+    }
+    return authorization
+  }
+
   const handleClick = (action: RoleQuickAction) => {
-    const auth = authorizeAction(userSession, action, roleConfig)
+    const auth = authorizeQuickAction(action)
 
     if (!auth.allowed) {
       setActiveFeedback({
@@ -62,10 +78,22 @@ export function QuickActions({
           Role-tailored shortcuts for {roleConfig.displayName}
         </span>
       </div>
+      {actions.some(
+        (action) =>
+          action.requiredPermission &&
+          !authorizeQuickAction(action).allowed,
+      ) && (
+        <p className="action-restriction-notice" role="note">
+          This action requires verified permissions.
+        </p>
+      )}
 
       <div className="quick-actions-grid">
         {actions.map((action) => {
           const isFeedbackActive = activeFeedback?.id === action.id
+          const authorization = authorizeQuickAction(action)
+          const isDisabled =
+            Boolean(action.requiredPermission) && !authorization.allowed
 
           return (
             <button
@@ -75,6 +103,12 @@ export function QuickActions({
                 action.primary ? "primary-action" : ""
               }`}
               onClick={() => handleClick(action)}
+              disabled={isDisabled}
+              title={
+                isDisabled
+                  ? "This action requires verified permissions."
+                  : undefined
+              }
             >
               <div className="quick-action-top">
                 <span className="action-icon-pill">

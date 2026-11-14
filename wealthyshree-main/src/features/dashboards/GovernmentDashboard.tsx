@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -9,16 +10,39 @@ import { ExportModal } from "../../components/modals"
 
 export interface GovernmentDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function GovernmentDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: GovernmentDashboardProps) {
   const { showToast } = useToast()
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "government_organizations" &&
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canManagePublicPrograms = hasPermission("manage:public_programs")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeTab, setActiveTab] = useState<"programs" | "campaigns">(
     "programs",
   )
@@ -259,12 +283,12 @@ export function GovernmentDashboard({
             </span>
             <span>1.85 Million Beneficiaries Across 8 Regional Districts</span>
           </div>
-          <h1 className="hero-title">Ambassador S. Vance</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Director of Public Finance & Citizen Welfare · Public Welfare &
-            Programs Console. Public financial programs, beneficiary welfare
-            groups, nationwide literacy campaigns, regional analytics, and
-            verified impact monitoring.
+            Demo role: Director of Public Finance & Citizen Welfare · Demo
+            organization: Public Welfare & Programs Console. Public financial
+            programs, beneficiary welfare groups, nationwide literacy
+            campaigns, regional analytics, and verified impact monitoring.
           </p>
         </div>
         <div className="hero-actions">
@@ -309,15 +333,24 @@ export function GovernmentDashboard({
       <QuickActions
         actions={roleConfig.quickActions}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "launch_campaign") onNavigate("Financial Literacy")
-          else if (act.id === "audit_disbursements")
-            onNavigate("Beneficiary Groups")
-          else if (act.id === "convene_taskforce")
-            onNavigate("Regional Analytics")
-          else if (act.id === "generate_impact") {
-            setShowExportModal(true)
-          } else onOpenAI()
+          const action = () => {
+            if (act.id === "launch_campaign")
+              onNavigate("Financial Literacy")
+            else if (act.id === "audit_disbursements")
+              onNavigate("Beneficiary Groups")
+            else if (act.id === "convene_taskforce")
+              onNavigate("Regional Analytics")
+            else if (act.id === "generate_impact")
+              setShowExportModal(true)
+            else onOpenAI()
+          }
+          if (act.requiredPermission) {
+            runAuthorized(act.requiredPermission, action)
+          } else {
+            action()
+          }
         }}
       />
 
@@ -797,12 +830,20 @@ export function GovernmentDashboard({
                   <button
                     type="button"
                     className="button button--sm button--primary"
+                    disabled={!canManagePublicPrograms}
+                    title={
+                      !canManagePublicPrograms
+                        ? permissionRequiredText
+                        : undefined
+                    }
                     onClick={() =>
-                      showToast({
-                        title: "Field Deployment Active",
-                        message: `Deploying educational campaign packets for ${cmp.title}. Reach: ${cmp.reachCount}.`,
-                        tone: "success",
-                      })
+                      runAuthorized("manage:public_programs", () =>
+                        showToast({
+                          title: "Field Deployment Active",
+                          message: `Deploying educational campaign packets for ${cmp.title}. Reach: ${cmp.reachCount}.`,
+                          tone: "success",
+                        }),
+                      )
                     }
                   >
                     Deploy Materials
@@ -811,6 +852,11 @@ export function GovernmentDashboard({
               </div>
             ))}
           </div>
+        )}
+        {!canManagePublicPrograms && activeTab === "campaigns" && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
         )}
       </section>
 
@@ -902,7 +948,11 @@ export function GovernmentDashboard({
           actionButton={{
             label: "Export Public Welfare Impact Audit",
             icon: "document",
-            onClick: () => setShowExportModal(true),
+            requiredPermission: "export:public_funds",
+            onClick: () =>
+              runAuthorized("export:public_funds", () =>
+                setShowExportModal(true),
+              ),
           }}
         />
       </section>
@@ -923,6 +973,7 @@ export function GovernmentDashboard({
       {/* Interactive Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:public_funds"
         onClose={() => setShowExportModal(false)}
         title="Export Public Sector Regional Welfare & Citizen Impact Audit"
         defaultFilename="public_sector_welfare_audit_report"

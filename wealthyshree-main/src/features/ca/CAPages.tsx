@@ -4,11 +4,14 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal, EvidenceVerifyModal } from "../../components/modals"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface CAPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -58,9 +61,33 @@ export function CAModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: CAPageProps) {
   const { showToast } = useToast()
+  const caRoleConfig = getRoleConfig("ca")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "ca" &&
+    authorizePermission(userSession, permission, caRoleConfig).allowed
+  const canConductAudit = hasPermission("conduct:statutory_audit")
+  const canSignReports = hasPermission("sign:audit_reports")
+  const canFileReturns = hasPermission("file:tax_returns")
+  const canWriteProfile = hasPermission("write:own_profile")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // Modals state
   const [showExportModal, setShowExportModal] = useState(false)
@@ -258,12 +285,17 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canConductAudit}
+                title={!canConductAudit ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Entity Onboarded (Simulated)",
-                    message: "Created client audit profile and initialized statutory working papers.",
-                    tone: "success",
-                  })
+                  runAuthorized("conduct:statutory_audit", () =>
+                    showToast({
+                      title: "Entity Onboarded (Simulated)",
+                      message:
+                        "Created client audit profile and initialized statutory working papers.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
@@ -278,6 +310,11 @@ export function CAModulePage({
                 <span>Export Client Master</span>
               </button>
             </div>
+            {(!canConductAudit || !canSignReports) && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Practice Mandates</span>
@@ -380,13 +417,17 @@ export function CAModulePage({
                   type="button"
                   className="button button--ghost"
                   style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                  disabled={!canSignReports}
+                  title={!canSignReports ? permissionRequiredText : undefined}
                   onClick={() => {
-                    setSelectedVerifyEvidence({
-                      title: `Statutory Ledger Sample for ${r.entityName}`,
-                      entity: r.entityName,
+                    runAuthorized("sign:audit_reports", () => {
+                      setSelectedVerifyEvidence({
+                        title: `Statutory Ledger Sample for ${r.entityName}`,
+                        entity: r.entityName,
+                      })
+                      setShowVerifyModal(true)
                     })
-                    setShowVerifyModal(true)
-                  }}
+                    }}
                 >
                   Verify Audit
                 </button>
@@ -399,23 +440,28 @@ export function CAModulePage({
         {showVerifyModal && (
           <EvidenceVerifyModal
             isOpen={showVerifyModal}
+            isAuthorized={canSignReports}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowVerifyModal(false)}
             evidenceTitle={selectedVerifyEvidence.title}
             entity={selectedVerifyEvidence.entity}
-            onVerified={() => {
-              setShowVerifyModal(false)
-              showToast({
-                title: "Evidence Verified (Simulated)",
-                message: `Recorded CA partner sign-off for ${selectedVerifyEvidence.entity}.`,
-                tone: "success",
+            onVerified={() =>
+              runAuthorized("sign:audit_reports", () => {
+                setShowVerifyModal(false)
+                showToast({
+                  title: "Evidence Verified (Simulated)",
+                  message: `Recorded CA partner sign-off for ${selectedVerifyEvidence.entity}.`,
+                  tone: "success",
+                })
               })
-            }}
+            }
           />
         )}
 
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:statutory_audit"
             onClose={() => setShowExportModal(false)}
             headers={["Entity Name", "Type", "PAN", "GSTIN", "Turnover", "Status"]}
             data={entities.map((e) => [e.entityName, e.type, e.pan, e.gstin, e.turnover, e.auditStatus])}
@@ -444,18 +490,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canConductAudit}
+                title={!canConductAudit ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Ledger Synchronized (Simulated)",
-                    message: "Refreshed ERP feeds across 42 corporate general ledgers.",
-                    tone: "success",
-                  })
+                  runAuthorized("conduct:statutory_audit", () =>
+                    showToast({
+                      title: "Ledger Synchronized (Simulated)",
+                      message:
+                        "Refreshed ERP feeds across 42 corporate general ledgers.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="activity" size={16} />
                 <span>Sync General Ledgers</span>
               </button>
             </div>
+            {!canConductAudit && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Ledger Vouchers Audited</span>
@@ -545,18 +601,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canFileReturns}
+                title={!canFileReturns ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Filing Workflow (Simulated)",
-                    message: "Advanced selected return to Partner Sign-off queue.",
-                    tone: "info",
-                  })
+                  runAuthorized("file:tax_returns", () =>
+                    showToast({
+                      title: "Filing Workflow (Simulated)",
+                      message:
+                        "Advanced selected return to Partner Sign-off queue.",
+                      tone: "info",
+                    }),
+                  )
                 }
               >
                 <Icon name="tax" size={16} />
                 <span>Advance Filing Workflow</span>
               </button>
             </div>
+            {!canFileReturns && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Tax Filing Progress</span>
@@ -662,18 +728,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canConductAudit}
+                title={!canConductAudit ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Reconciliation Run (Simulated)",
-                    message: "Completed 26AS matching across all 42 entities. 1 ITC variance flagged.",
-                    tone: "success",
-                  })
+                  runAuthorized("conduct:statutory_audit", () =>
+                    showToast({
+                      title: "Reconciliation Run (Simulated)",
+                      message:
+                        "Completed 26AS matching across all 42 entities. 1 ITC variance flagged.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="sparkle" size={16} />
                 <span>Run Reconciliation Matcher</span>
               </button>
             </div>
+            {!canConductAudit && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Withholding Tax Match</span>
@@ -847,18 +923,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canConductAudit}
+                title={!canConductAudit ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Deadline Alerts Dispatched",
-                    message: "Sent statutory compliance email reminders to 18 corporate CFOs.",
-                    tone: "success",
-                  })
+                  runAuthorized("conduct:statutory_audit", () =>
+                    showToast({
+                      title: "Deadline Alerts Dispatched",
+                      message:
+                        "Sent statutory compliance email reminders to 18 corporate CFOs.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="calendar" size={16} />
                 <span>Send Deadline Reminders</span>
               </button>
             </div>
+            {!canConductAudit && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Immediate Milestone</span>
@@ -936,18 +1022,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canConductAudit}
+                title={!canConductAudit ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Audit Report Generated (Simulated)",
-                    message: "Drafted Independent Auditor's Report with Unmodified Clean Opinion.",
-                    tone: "success",
-                  })
+                  runAuthorized("conduct:statutory_audit", () =>
+                    showToast({
+                      title: "Audit Report Generated (Simulated)",
+                      message:
+                        "Drafted Independent Auditor's Report with Unmodified Clean Opinion.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="document" size={16} />
                 <span>Generate Audit Opinion</span>
               </button>
             </div>
+            {!canConductAudit && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Audit Quality Index</span>
@@ -1031,18 +1127,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canConductAudit}
+                title={!canConductAudit ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Working Paper Uploaded (Simulated)",
-                    message: "Committed external bank confirmation letter to audit working paper folder.",
-                    tone: "success",
-                  })
+                  runAuthorized("conduct:statutory_audit", () =>
+                    showToast({
+                      title: "Working Paper Uploaded (Simulated)",
+                      message:
+                        "Committed external bank confirmation letter to audit working paper folder.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
                 <span>Upload Working Paper</span>
               </button>
             </div>
+            {!canConductAudit && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Documentation Retention</span>
@@ -1126,18 +1232,28 @@ export function CAModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteProfile}
+                title={!canWriteProfile ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Settings Saved",
-                    message: "Firm configuration and ICAI registration details updated.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:own_profile", () =>
+                    showToast({
+                      title: "Settings Saved",
+                      message:
+                        "Firm configuration and ICAI registration details updated.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="check" size={16} />
                 <span>Save Firm Settings</span>
               </button>
             </div>
+            {!canWriteProfile && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">ICAI Firm Reg Number</span>
@@ -1157,6 +1273,7 @@ export function CAModulePage({
               <input
                 type="text"
                 defaultValue="Sharma & Associates LLP, Chartered Accountants"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1165,6 +1282,7 @@ export function CAModulePage({
               <input
                 type="text"
                 defaultValue="Priya Sharma, FCA (Membership # 084912)"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1173,6 +1291,7 @@ export function CAModulePage({
               <input
                 type="text"
                 defaultValue="Valid thru: Dec 2026 (USB Token Active)"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>

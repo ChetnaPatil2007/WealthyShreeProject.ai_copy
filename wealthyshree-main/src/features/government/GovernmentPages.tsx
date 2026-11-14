@@ -4,12 +4,15 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals"
+import { authorizePermission, ROLE_CONFIGURATIONS } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface GovernmentPageProps {
   navId: string
   navName: string
   openAI: () => void
   onNavigate?: (target: string) => void
+  userSession: UserSession
 }
 
 interface PublicProgramItem {
@@ -61,9 +64,36 @@ export function GovernmentModulePage({
   navName,
   openAI,
   onNavigate,
+  userSession,
 }: GovernmentPageProps) {
   const { showToast } = useToast()
   const [showExportModal, setShowExportModal] = useState(false)
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "government_organizations" &&
+    authorizePermission(
+      userSession,
+      permission,
+      ROLE_CONFIGURATIONS.government_organizations,
+    ).allowed
+  const canLaunchCampaign = hasPermission("manage:public_programs")
+  const canAuditDisbursements = hasPermission("audit:public_funds")
+  const canExportPublicFunds = hasPermission("export:public_funds")
+  const canWriteGovernmentSettings = hasPermission("write:government_settings")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // 1. Programs State
   const [programs, setPrograms] = useState<PublicProgramItem[]>([
@@ -232,19 +262,23 @@ export function GovernmentModulePage({
   ])
 
   const handleLaunchCampaign = () => {
-    showToast({
-      title: "Regional Campaign Dispatched (Simulated)",
-      message: "Mobile clinics and multilingual digital modules activated in District 3.",
-      tone: "success",
-    })
+    runAuthorized("manage:public_programs", () =>
+      showToast({
+        title: "Regional Campaign Dispatched (Simulated)",
+        message: "Mobile clinics and multilingual digital modules activated in District 3.",
+        tone: "success",
+      }),
+    )
   }
 
   const handleAuditDisbursements = () => {
-    showToast({
-      title: "Disbursement Audit Initiated (Simulated)",
-      message: "Direct welfare transfers audited. Zero anomaly duplicate claims flagged.",
-      tone: "success",
-    })
+    runAuthorized("audit:public_funds", () =>
+      showToast({
+        title: "Disbursement Audit Initiated (Simulated)",
+        message: "Direct welfare transfers audited. Zero anomaly duplicate claims flagged.",
+        tone: "success",
+      }),
+    )
   }
 
   /* =========================================================================
@@ -285,7 +319,13 @@ export function GovernmentModulePage({
           <button
             className="btn btn-outline"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
-            onClick={() => setShowExportModal(true)}
+            disabled={!canExportPublicFunds}
+            title={!canExportPublicFunds ? permissionRequiredText : undefined}
+            onClick={() =>
+              runAuthorized("export:public_funds", () =>
+                setShowExportModal(true),
+              )
+            }
           >
             <Icon name="document" size={15} />
             Export Public Audit (CSV)
@@ -293,6 +333,10 @@ export function GovernmentModulePage({
           <button
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            disabled={!canAuditDisbursements}
+            title={
+              !canAuditDisbursements ? permissionRequiredText : undefined
+            }
             onClick={handleAuditDisbursements}
           >
             <Icon name="shield" size={15} />
@@ -300,6 +344,13 @@ export function GovernmentModulePage({
           </button>
         </div>
       </div>
+      {(!canAuditDisbursements ||
+        !canExportPublicFunds ||
+        (navId === "programs" && !canLaunchCampaign)) && (
+        <p className="action-restriction-notice" role="note">
+          {permissionRequiredText}
+        </p>
+      )}
 
       {/* 1. PROGRAMS */}
       {navId === "programs" && (
@@ -357,6 +408,8 @@ export function GovernmentModulePage({
               <button
                 className="btn btn-primary"
                 style={{ fontSize: "12px" }}
+                disabled={!canLaunchCampaign}
+                title={!canLaunchCampaign ? permissionRequiredText : undefined}
                 onClick={handleLaunchCampaign}
               >
                 Deploy Regional Initiative (Simulated)
@@ -808,7 +861,13 @@ export function GovernmentModulePage({
               <button
                 className="btn btn-primary"
                 style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
-                onClick={() => setShowExportModal(true)}
+                disabled={!canExportPublicFunds}
+                title={!canExportPublicFunds ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("export:public_funds", () =>
+                    setShowExportModal(true),
+                  )
+                }
               >
                 <Icon name="document" size={14} />
                 Export Public Report
@@ -982,7 +1041,17 @@ export function GovernmentModulePage({
                   <label style={{ display: "block", fontSize: "12px", color: "var(--ink)", fontWeight: 600, marginBottom: "4px" }}>
                     Public Ledger Anonymization Level
                   </label>
-                  <select className="select" defaultValue="k25" style={{ width: "100%" }}>
+                  <select
+                    className="select"
+                    defaultValue="k25"
+                    style={{ width: "100%" }}
+                    disabled={!canWriteGovernmentSettings}
+                    title={
+                      !canWriteGovernmentSettings
+                        ? permissionRequiredText
+                        : undefined
+                    }
+                  >
                     <option value="k10">k-Anonymity (10 Citizens)</option>
                     <option value="k25">k-Anonymity (25 Citizens) (Current)</option>
                     <option value="k50">k-Anonymity (50 Citizens) Highest</option>
@@ -992,16 +1061,29 @@ export function GovernmentModulePage({
                 <button
                   className="btn btn-outline"
                   style={{ alignSelf: "flex-start", fontSize: "12px" }}
+                  disabled={!canWriteGovernmentSettings}
+                  title={
+                    !canWriteGovernmentSettings
+                      ? permissionRequiredText
+                      : undefined
+                  }
                   onClick={() => {
-                    showToast({
-                      title: "Settings Saved",
-                      message: "Open Government transparency thresholds updated.",
-                      tone: "success",
-                    })
+                    runAuthorized("write:government_settings", () =>
+                      showToast({
+                        title: "Settings Saved",
+                        message: "Open Government transparency thresholds updated.",
+                        tone: "success",
+                      }),
+                    )
                   }}
                 >
                   Save Transparency Rules
                 </button>
+                {!canWriteGovernmentSettings && (
+                  <p className="action-restriction-notice" role="note">
+                    {permissionRequiredText}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1011,6 +1093,7 @@ export function GovernmentModulePage({
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:public_funds"
         onClose={() => setShowExportModal(false)}
         title="Export Public Sector Audit Data"
         defaultFilename="Government_Public_Programs_Audit"

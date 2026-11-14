@@ -4,11 +4,14 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { SubmitClaimModal, ExportModal } from "../../components/modals"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface InsurancePageProps {
   navId: string
   navName: string
   openAI: () => void
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -51,9 +54,32 @@ export function InsuranceModulePage({
   navId,
   navName,
   openAI,
+  userSession,
   onNavigate,
 }: InsurancePageProps) {
   const { showToast } = useToast()
+  const insuranceRoleConfig = getRoleConfig("insurance_advisor")
+  const hasPermission = (permission: Permission) =>
+    authorizePermission(userSession, permission, insuranceRoleConfig).allowed
+  const canWriteClientRoster = hasPermission("write:client_roster")
+  const canIssueQuotes = hasPermission("issue:insurance_quotes")
+  const canSubmitClaims = hasPermission("submit:insurance_claims")
+  const canWriteProfile = hasPermission("write:own_profile")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // State
   const [showClaimModal, setShowClaimModal] = useState(false)
@@ -227,12 +253,17 @@ export function InsuranceModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteClientRoster}
+                title={!canWriteClientRoster ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Insured Added (Simulated)",
-                    message: "Created insured client record and launched underwriting questionnaire.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:client_roster", () =>
+                    showToast({
+                      title: "Insured Added (Simulated)",
+                      message:
+                        "Created insured client record and launched underwriting questionnaire.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
@@ -247,6 +278,11 @@ export function InsuranceModulePage({
                 <span>Export Insured Directory</span>
               </button>
             </div>
+            {!canWriteClientRoster && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Insured Households</span>
@@ -358,6 +394,7 @@ export function InsuranceModulePage({
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:insurance_policies"
             onClose={() => setShowExportModal(false)}
             headers={["Client Name", "Type", "Policies", "Total Coverage", "Annual Premium", "Risk Class"]}
             data={clients.map((c) => [c.clientName, c.householdType, c.activePoliciesCount, `$${c.totalCoverageValue.toLocaleString()}`, `$${c.annualPremium.toLocaleString()}`, c.riskClass])}
@@ -386,18 +423,28 @@ export function InsuranceModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canIssueQuotes}
+                title={!canIssueQuotes ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Quote Prepared (Simulated)",
-                    message: "Drafted insurance binding application with underwriter portal.",
-                    tone: "success",
-                  })
+                  runAuthorized("issue:insurance_quotes", () =>
+                    showToast({
+                      title: "Quote Prepared (Simulated)",
+                      message:
+                        "Drafted insurance binding application with underwriter portal.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
                 <span>Issue New Policy Quote</span>
               </button>
             </div>
+            {!canIssueQuotes && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Practice Retention</span>
@@ -752,12 +799,23 @@ export function InsuranceModulePage({
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => setShowClaimModal(true)}
+                disabled={!canSubmitClaims}
+                title={!canSubmitClaims ? permissionRequiredText : undefined}
+                onClick={() =>
+                  runAuthorized("submit:insurance_claims", () =>
+                    setShowClaimModal(true),
+                  )
+                }
               >
                 <Icon name="alert" size={16} />
                 <span>Submit Client Claim</span>
               </button>
             </div>
+            {!canSubmitClaims && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Claims in Processing</span>
@@ -827,15 +885,19 @@ export function InsuranceModulePage({
         {showClaimModal && (
           <SubmitClaimModal
             isOpen={showClaimModal}
+            isAuthorized={canSubmitClaims}
+            onUnauthorized={notifyUnauthorized}
             onClose={() => setShowClaimModal(false)}
-            onClaimSubmitted={(newClaim) => {
-              setShowClaimModal(false)
-              showToast({
-                title: "Claim Submitted (Simulated)",
-                message: `Filed simulated claim #${newClaim.claimNumber} for $${newClaim.amount.toLocaleString()}. Adjuster assignment queued.`,
-                tone: "success",
+            onClaimSubmitted={(newClaim) =>
+              runAuthorized("submit:insurance_claims", () => {
+                setShowClaimModal(false)
+                showToast({
+                  title: "Claim Submitted (Simulated)",
+                  message: `Filed simulated claim #${newClaim.claimNumber} for $${newClaim.amount.toLocaleString()}. Adjuster assignment queued.`,
+                  tone: "success",
+                })
               })
-            }}
+            }
           />
         )}
       </div>
@@ -859,18 +921,28 @@ export function InsuranceModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canIssueQuotes}
+                title={!canIssueQuotes ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Renewal Invoices Sent",
-                    message: "Dispatched automated renewal packets to 4 clients with policies expiring this month.",
-                    tone: "success",
-                  })
+                  runAuthorized("issue:insurance_quotes", () =>
+                    showToast({
+                      title: "Renewal Invoices Sent",
+                      message:
+                        "Dispatched automated renewal packets to 4 clients with policies expiring this month.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="calendar" size={16} />
                 <span>Dispatch Renewal Invoices</span>
               </button>
             </div>
+            {!canIssueQuotes && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Immediate Expiration</span>
@@ -923,12 +995,16 @@ export function InsuranceModulePage({
                   type="button"
                   className="button button--ghost"
                   style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                  disabled={!canIssueQuotes}
+                  title={!canIssueQuotes ? permissionRequiredText : undefined}
                   onClick={() =>
-                    showToast({
-                      title: "Renewal Bound (Simulated)",
-                      message: `Simulated policy renewal binding for ${r.client}.`,
-                      tone: "success",
-                    })
+                    runAuthorized("issue:insurance_quotes", () =>
+                      showToast({
+                        title: "Renewal Bound (Simulated)",
+                        message: `Simulated policy renewal binding for ${r.client}.`,
+                        tone: "success",
+                      }),
+                    )
                   }
                 >
                   Renew Policy
@@ -1126,18 +1202,28 @@ export function InsuranceModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteProfile}
+                title={!canWriteProfile ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Settings Saved",
-                    message: "Agency profile and carrier appointment records updated.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:own_profile", () =>
+                    showToast({
+                      title: "Settings Saved",
+                      message:
+                        "Agency profile and carrier appointment records updated.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="check" size={16} />
                 <span>Save Agency Settings</span>
               </button>
             </div>
+            {!canWriteProfile && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">National Producer Number</span>
@@ -1157,6 +1243,7 @@ export function InsuranceModulePage({
               <input
                 type="text"
                 defaultValue="Sarah Jenkins, CLU®, ChFC®"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1165,6 +1252,7 @@ export function InsuranceModulePage({
               <input
                 type="text"
                 defaultValue="Jenkins Risk & Assurance Desk LLC"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1173,6 +1261,7 @@ export function InsuranceModulePage({
               <input
                 type="text"
                 defaultValue="California Dept of Insurance # 0G94812"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>

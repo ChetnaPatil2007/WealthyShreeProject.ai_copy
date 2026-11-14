@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import type { RoleConfig } from "../../types/roles"
+import type { Permission, RoleConfig, UserSession } from "../../types/roles"
+import { authorizePermission } from "../../config/roles"
 import { Icon } from "../../components/ui/Icon"
 import { MetricCard } from "../../components/ui/MetricCard"
 import { QuickActions } from "../../components/ui/QuickActions"
@@ -10,16 +11,38 @@ import { RebalanceModal, ExportModal } from "../../components/modals"
 
 export interface InvestmentManagerDashboardProps {
   roleConfig: RoleConfig
+  userSession: UserSession
+  userName: string
   onNavigate: (tabName: string) => void
   onOpenAI: () => void
 }
 
 export function InvestmentManagerDashboard({
   roleConfig,
+  userSession,
+  userName,
   onNavigate,
   onOpenAI,
 }: InvestmentManagerDashboardProps) {
   const { showToast } = useToast()
+  const hasPermission = (permission: Permission) =>
+    authorizePermission(userSession, permission, roleConfig).allowed
+  const canExecuteTrades = hasPermission("execute:trades")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
   const [activeQueueTab, setActiveQueueTab] = useState<"alerts" | "rebalance">(
     "alerts",
   )
@@ -294,11 +317,11 @@ export function InvestmentManagerDashboard({
               Total Modeled AUM: $342.8M · 8 Portfolios in Rebalance Queue
             </span>
           </div>
-          <h1 className="hero-title">Victoria Vance, CFA</h1>
+          <h1 className="hero-title">{userName}</h1>
           <p className="hero-subtitle">
-            Chief Investment Officer · Vance Capital Management. Multi-asset
-            portfolio attribution, downside risk modeling, factor exposure, and
-            systematic mandate rebalancing.
+            Demo role: Chief Investment Officer · Demo organization: Vance
+            Capital Management. Multi-asset portfolio attribution, downside risk
+            modeling, factor exposure, and systematic mandate rebalancing.
           </p>
         </div>
         <div className="hero-actions">
@@ -338,11 +361,23 @@ export function InvestmentManagerDashboard({
 
       {/* 3. Quick Actions Component */}
       <QuickActions
-        actions={roleConfig.quickActions}
+        actions={roleConfig.quickActions.map((action) =>
+          action.id === "run_stress"
+            ? { ...action, requiredPermission: undefined }
+            : action,
+        )}
         roleConfig={roleConfig}
+        userSession={userSession}
         onExecuteAction={(act) => {
-          if (act.id === "batch_trade") setShowRebalanceModal(true)
-          else if (act.id === "stress_test") onNavigate("Risk Analysis")
+          if (act.requiredPermission && !hasPermission(act.requiredPermission)) {
+            notifyUnauthorized()
+            return
+          }
+          if (act.id === "batch_trade") {
+            runAuthorized("execute:trades", () =>
+              setShowRebalanceModal(true),
+            )
+          } else if (act.id === "stress_test") onNavigate("Risk Analysis")
           else if (act.id === "factor_deck") setShowExportModal(true)
           else onOpenAI()
         }}
@@ -470,6 +505,11 @@ export function InvestmentManagerDashboard({
             </button>
           </div>
         </div>
+        {!canExecuteTrades && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
 
         {activeQueueTab === "alerts" ? (
           <div className="deadline-timeline">
@@ -557,14 +597,18 @@ export function InvestmentManagerDashboard({
                   <button
                     type="button"
                     className="button button--secondary button--sm"
-                    onClick={() => {
-                      showToast({
-                        title: "Rebalance Block",
-                        message: `Staging rebalancing order block for ${rb.portfolio}...`,
-                        tone: "info",
+                    disabled={!canExecuteTrades}
+                    title={!canExecuteTrades ? permissionRequiredText : undefined}
+                    onClick={() =>
+                      runAuthorized("execute:trades", () => {
+                        showToast({
+                          title: "Rebalance Block",
+                          message: `Staging rebalancing order block for ${rb.portfolio}...`,
+                          tone: "info",
+                        })
+                        setShowRebalanceModal(true)
                       })
-                      setShowRebalanceModal(true)
-                    }}
+                    }
                   >
                     Execute Block
                   </button>
@@ -695,19 +739,24 @@ export function InvestmentManagerDashboard({
       {/* Interactive Modals */}
       <RebalanceModal
         isOpen={showRebalanceModal}
+        isAuthorized={canExecuteTrades}
+        onUnauthorized={notifyUnauthorized}
         onClose={() => setShowRebalanceModal(false)}
-        onRebalanceComplete={() => {
-          showToast({
-            title: "Rebalance Block Executed",
-            message:
-              "Target mandate allocations successfully applied to portfolio sleeve.",
-            tone: "success",
-          })
-        }}
+        onRebalanceComplete={() =>
+          runAuthorized("execute:trades", () =>
+            showToast({
+              title: "Rebalance Block Executed",
+              message:
+                "Target mandate allocations successfully applied to portfolio sleeve.",
+              tone: "success",
+            }),
+          )
+        }
       />
 
       <ExportModal
         isOpen={showExportModal}
+        requiredPermission="export:investment_portfolios"
         onClose={() => setShowExportModal(false)}
         title="Export Institutional Portfolio Performance Deck"
         defaultFilename="wealthsphere_portfolio_performance"

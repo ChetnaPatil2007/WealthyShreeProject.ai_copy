@@ -5,12 +5,16 @@ import { useToast } from "../ui/Toast"
 
 export interface RebalanceModalProps {
   isOpen: boolean
+  isAuthorized?: boolean
+  onUnauthorized?: () => void
   onClose: () => void
   onRebalanceComplete?: () => void
 }
 
 export function RebalanceModal({
   isOpen,
+  isAuthorized = false,
+  onUnauthorized,
   onClose,
   onRebalanceComplete,
 }: RebalanceModalProps) {
@@ -28,6 +32,10 @@ export function RebalanceModal({
   const isValid = Math.abs(total - 100) < 0.1
 
   const handleExecute = async () => {
+    if (!isAuthorized) {
+      onUnauthorized?.()
+      return
+    }
     if (!isValid) return
 
     setIsSubmitting(true)
@@ -84,6 +92,11 @@ export function RebalanceModal({
         </div>
 
         <div className="modal-body">
+          {!isAuthorized && (
+            <div className="modal-info-callout" role="alert">
+              This action requires verified permissions.
+            </div>
+          )}
           <p
             style={{
               fontSize: "12px",
@@ -105,7 +118,7 @@ export function RebalanceModal({
                 value={equities}
                 onChange={(e) => setEquities(Number(e.target.value))}
                 className="slider-range"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               <b className="slider-val">{equities}%</b>
             </div>
@@ -121,7 +134,7 @@ export function RebalanceModal({
                 value={bonds}
                 onChange={(e) => setBonds(Number(e.target.value))}
                 className="slider-range"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               <b className="slider-val">{bonds}%</b>
             </div>
@@ -137,7 +150,7 @@ export function RebalanceModal({
                 value={international}
                 onChange={(e) => setInternational(Number(e.target.value))}
                 className="slider-range"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               <b className="slider-val">{international}%</b>
             </div>
@@ -151,7 +164,7 @@ export function RebalanceModal({
                 value={alternatives}
                 onChange={(e) => setAlternatives(Number(e.target.value))}
                 className="slider-range"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               <b className="slider-val">{alternatives}%</b>
             </div>
@@ -167,7 +180,7 @@ export function RebalanceModal({
                 value={cash}
                 onChange={(e) => setCash(Number(e.target.value))}
                 className="slider-range"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isAuthorized}
               />
               <b className="slider-val">{cash}%</b>
             </div>
@@ -224,7 +237,7 @@ export function RebalanceModal({
               type="button"
               className="button button--primary"
               onClick={handleExecute}
-              disabled={!isValid || isSubmitting}
+              disabled={!isValid || isSubmitting || !isAuthorized}
             >
               {isSubmitting ? (
                 <>

@@ -4,11 +4,15 @@ import { MetricCard } from "../../components/ui/MetricCard"
 import { DataTable } from "../../components/ui/DataTable"
 import { useToast } from "../../components/ui/Toast"
 import { ExportModal } from "../../components/modals"
+import { authorizePermission, getRoleConfig } from "../../config/roles"
+import type { Permission, UserSession } from "../../types/roles"
 
 export interface TaxConsultantPageProps {
   navId: string
   navName: string
   openAI: () => void
+  userName: string
+  userSession: UserSession
   onNavigate?: (target: string) => void
 }
 
@@ -46,9 +50,34 @@ export function TaxConsultantModulePage({
   navId,
   navName,
   openAI,
+  userName,
+  userSession,
   onNavigate,
 }: TaxConsultantPageProps) {
   const { showToast } = useToast()
+  const taxConsultantRoleConfig = getRoleConfig("tax_consultant")
+  const permissionRequiredText =
+    "This action requires verified permissions."
+  const hasPermission = (permission: Permission) =>
+    userSession.activeRoleKey === "tax_consultant" &&
+    authorizePermission(userSession, permission, taxConsultantRoleConfig).allowed
+  const canWriteClients = hasPermission("write:client_roster")
+  const canWriteScenarios = hasPermission("write:tax_scenarios")
+  const canFileReturns = hasPermission("file:tax_returns")
+  const canWriteProfile = hasPermission("write:own_profile")
+  const notifyUnauthorized = () =>
+    showToast({
+      title: "Access Restricted",
+      message: permissionRequiredText,
+      tone: "warning",
+    })
+  const runAuthorized = (permission: Permission, action: () => void) => {
+    if (!hasPermission(permission)) {
+      notifyUnauthorized()
+      return
+    }
+    action()
+  }
 
   // State
   const [showExportModal, setShowExportModal] = useState(false)
@@ -178,7 +207,7 @@ export function TaxConsultantModulePage({
   const [taxChat, setTaxChat] = useState<Array<{ sender: "ai" | "consultant"; text: string }>>([
     {
       sender: "ai",
-      text: "Hello David. I am your Sphere AI Tax Advisory Assistant. I am loaded with the latest IRC provisions, state apportionment rules, and cross-border bilateral tax treaties. What tax scenario would you like to model today?",
+      text: `Hello ${userName}. I am your Sphere AI Tax Advisory Assistant. I am loaded with the latest IRC provisions, state apportionment rules, and cross-border bilateral tax treaties. What tax scenario would you like to model today?`,
     },
   ])
   const [taxInput, setTaxInput] = useState("")
@@ -225,12 +254,17 @@ export function TaxConsultantModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteClients}
+                title={!canWriteClients ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Client Added (Simulated)",
-                    message: "Initialized new tax advisory intake engagement.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:client_roster", () =>
+                    showToast({
+                      title: "Client Added (Simulated)",
+                      message:
+                        "Initialized new tax advisory intake engagement.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="plus" size={16} />
@@ -245,6 +279,11 @@ export function TaxConsultantModulePage({
                 <span>Export Client List</span>
               </button>
             </div>
+            {!canWriteClients && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Active Tax Accounts</span>
@@ -361,6 +400,7 @@ export function TaxConsultantModulePage({
         {showExportModal && (
           <ExportModal
             isOpen={showExportModal}
+            requiredPermission="export:tax_returns"
             onClose={() => setShowExportModal(false)}
             headers={["Client Name", "Type", "Jurisdiction", "Filing Status", "Projected AGI", "Status"]}
             data={clients.map((c) => [c.clientName, c.type, c.jurisdiction, c.filingStatus, `$${c.estimatedAgi.toLocaleString()}`, c.filingReadiness])}
@@ -389,18 +429,30 @@ export function TaxConsultantModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteScenarios}
+                title={
+                  !canWriteScenarios ? permissionRequiredText : undefined
+                }
                 onClick={() =>
-                  showToast({
-                    title: "Scenario Model Saved (Simulated)",
-                    message: "Saved strategy comparison to client portfolio file.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:tax_scenarios", () =>
+                    showToast({
+                      title: "Scenario Model Saved (Simulated)",
+                      message:
+                        "Saved strategy comparison to client portfolio file.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="trending" size={16} />
                 <span>Save Planning Model</span>
               </button>
             </div>
+            {!canWriteScenarios && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Identified Tax Offsets</span>
@@ -481,12 +533,18 @@ export function TaxConsultantModulePage({
                   type="button"
                   className="button button--secondary"
                   style={{ width: "100%", justifyContent: "center", fontSize: "0.85rem" }}
+                  disabled={!canWriteScenarios}
+                  title={
+                    !canWriteScenarios ? permissionRequiredText : undefined
+                  }
                   onClick={() =>
-                    showToast({
-                      title: "Scenario Applied (Simulated)",
-                      message: `Applied ${sc.name} to client review packet. Projected tax savings: $${sc.projectedSavings.toLocaleString()}.`,
-                      tone: "success",
-                    })
+                    runAuthorized("write:tax_scenarios", () =>
+                      showToast({
+                        title: "Scenario Applied (Simulated)",
+                        message: `Applied ${sc.name} to client review packet. Projected tax savings: $${sc.projectedSavings.toLocaleString()}.`,
+                        tone: "success",
+                      }),
+                    )
                   }
                 >
                   Apply Strategy
@@ -495,6 +553,11 @@ export function TaxConsultantModulePage({
             </div>
           ))}
         </div>
+        {!canWriteScenarios && (
+          <p className="action-restriction-notice" role="note">
+            {permissionRequiredText}
+          </p>
+        )}
       </div>
     )
   }
@@ -598,18 +661,28 @@ export function TaxConsultantModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canFileReturns}
+                title={!canFileReturns ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Vouchers Dispatched (Simulated)",
-                    message: "Sent Q2 federal & state estimated tax payment vouchers to 28 clients.",
-                    tone: "success",
-                  })
+                  runAuthorized("file:tax_returns", () =>
+                    showToast({
+                      title: "Vouchers Dispatched (Simulated)",
+                      message:
+                        "Sent Q2 federal & state estimated tax payment vouchers to 28 clients.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="calendar" size={16} />
                 <span>Send Payment Vouchers</span>
               </button>
             </div>
+            {!canFileReturns && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-gold">
             <span className="label">Immediate Deadline</span>
@@ -687,18 +760,28 @@ export function TaxConsultantModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canFileReturns}
+                title={!canFileReturns ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Intake Reminders Sent",
-                    message: "Dispatched automated document request checklist to clients with pending K-1s.",
-                    tone: "info",
-                  })
+                  runAuthorized("file:tax_returns", () =>
+                    showToast({
+                      title: "Intake Reminders Sent",
+                      message:
+                        "Dispatched automated document request checklist to clients with pending K-1s.",
+                      tone: "info",
+                    }),
+                  )
                 }
               >
                 <Icon name="document" size={16} />
                 <span>Send Document Requests</span>
               </button>
             </div>
+            {!canFileReturns && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Intake Completion</span>
@@ -756,12 +839,16 @@ export function TaxConsultantModulePage({
                   type="button"
                   className="button button--ghost"
                   style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                  disabled={!canFileReturns}
+                  title={!canFileReturns ? permissionRequiredText : undefined}
                   onClick={() =>
-                    showToast({
-                      title: "Document Verified",
-                      message: `Confirmed ${r.formCode} data integrity.`,
-                      tone: "success",
-                    })
+                    runAuthorized("file:tax_returns", () =>
+                      showToast({
+                        title: "Document Verified",
+                        message: `Confirmed ${r.formCode} data integrity.`,
+                        tone: "success",
+                      }),
+                    )
                   }
                 >
                   Verify Form
@@ -867,18 +954,28 @@ export function TaxConsultantModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canFileReturns}
+                title={!canFileReturns ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Tax Memo Generated (Simulated)",
-                    message: "Exported 24-page Strategic Tax Planning Memorandum PDF.",
-                    tone: "success",
-                  })
+                  runAuthorized("file:tax_returns", () =>
+                    showToast({
+                      title: "Tax Memo Generated (Simulated)",
+                      message:
+                        "Exported 24-page Strategic Tax Planning Memorandum PDF.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="document" size={16} />
                 <span>Generate Tax Memorandum</span>
               </button>
             </div>
+            {!canFileReturns && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">Advisory Deliverables</span>
@@ -1033,7 +1130,7 @@ export function TaxConsultantModulePage({
                 }}
               >
                 <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: "0.25rem" }}>
-                  {msg.sender === "consultant" ? "David Chen, EA" : "Sphere AI Tax Co-Pilot"}
+                  {msg.sender === "consultant" ? userName : "Sphere AI Tax Co-Pilot"}
                 </div>
                 <div style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>{msg.text}</div>
               </div>
@@ -1088,18 +1185,28 @@ export function TaxConsultantModulePage({
               <button
                 type="button"
                 className="button button--primary"
+                disabled={!canWriteProfile}
+                title={!canWriteProfile ? permissionRequiredText : undefined}
                 onClick={() =>
-                  showToast({
-                    title: "Settings Saved",
-                    message: "Tax practice profile and PTIN details updated.",
-                    tone: "success",
-                  })
+                  runAuthorized("write:own_profile", () =>
+                    showToast({
+                      title: "Settings Saved",
+                      message:
+                        "Tax practice profile and PTIN details updated.",
+                      tone: "success",
+                    }),
+                  )
                 }
               >
                 <Icon name="check" size={16} />
                 <span>Save Tax Settings</span>
               </button>
             </div>
+            {!canWriteProfile && (
+              <p className="action-restriction-notice" role="note">
+                {permissionRequiredText}
+              </p>
+            )}
           </div>
           <div className="module-stat tone-navy">
             <span className="label">IRS PTIN Registration</span>
@@ -1118,7 +1225,8 @@ export function TaxConsultantModulePage({
               <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.3rem" }}>Consultant Name</label>
               <input
                 type="text"
-                defaultValue="David Chen, EA, MS Taxation"
+                defaultValue={userName}
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1127,6 +1235,7 @@ export function TaxConsultantModulePage({
               <input
                 type="text"
                 defaultValue="Chen International Tax Group LLC"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>
@@ -1135,6 +1244,7 @@ export function TaxConsultantModulePage({
               <input
                 type="text"
                 defaultValue="EFIN # 894012 (Active)"
+                disabled={!canWriteProfile}
                 style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--color-border, #ddd)", background: "var(--color-bg-input, #fff)", color: "inherit" }}
               />
             </div>

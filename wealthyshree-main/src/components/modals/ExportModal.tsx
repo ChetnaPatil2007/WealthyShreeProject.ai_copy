@@ -2,6 +2,8 @@ import React, { useState } from "react"
 import { Icon } from "../ui/Icon"
 import { apiService } from "../../services/apiService"
 import { useToast } from "../ui/Toast"
+import { useExportAuthorizationChecker } from "../../config/ExportAuthorizationContext"
+import type { Permission, RoleKey } from "../../types/roles"
 
 export interface ExportModalProps {
   isOpen: boolean
@@ -10,6 +12,10 @@ export interface ExportModalProps {
   headers?: string[]
   data?: (string | number)[][]
   defaultFilename?: string
+  requiredPermission: Permission
+  requiredActiveRole?: RoleKey
+  authorizationRequiredForAllFormats?: boolean
+  authorizationDeniedMessage?: string
 }
 
 export function ExportModal({
@@ -54,20 +60,63 @@ export function ExportModal({
     ],
   ],
   defaultFilename = "wealthsphere_report",
+  requiredPermission,
+  requiredActiveRole,
+  authorizationRequiredForAllFormats = false,
+  authorizationDeniedMessage = "Exporting this data requires verified permissions.",
 }: ExportModalProps) {
   const { showToast } = useToast()
+  const { checkAuthorization, getActiveRole } =
+    useExportAuthorizationChecker()
+  const authorization = checkAuthorization(
+    requiredPermission,
+    requiredActiveRole,
+  )
   const [format, setFormat] = useState<"csv" | "pdf" | "json">("csv")
   const [includeAuditHash, setIncludeAuditHash] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
+  const formatRequiresAuthorization =
+    format === "csv" || authorizationRequiredForAllFormats
 
   if (!isOpen) return null
 
   const handleDownload = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    const activeRoleAtStart = getActiveRole()
+    const expectedRole =
+      requiredActiveRole ?? activeRoleAtStart ?? undefined
+    const authorizationAtSubmit = checkAuthorization(
+      requiredPermission,
+      expectedRole,
+    )
+    if (formatRequiresAuthorization && !authorizationAtSubmit.allowed) {
+      showToast({
+        title: "Access Restricted",
+        message: authorizationDeniedMessage,
+        tone: "warning",
+      })
+      return
+    }
+
     setIsExporting(true)
 
     // Small simulated packaging delay
     await new Promise((r) => setTimeout(r, 450))
+
+    const latestAuthorization = checkAuthorization(
+      requiredPermission,
+      expectedRole,
+    )
+    if (formatRequiresAuthorization && !latestAuthorization.allowed) {
+      setIsExporting(false)
+      showToast({
+        title: "Access Restricted",
+        message: authorizationDeniedMessage,
+        tone: "warning",
+      })
+      return
+    }
 
     if (format === "csv") {
       const exportHeaders = includeAuditHash
@@ -156,6 +205,12 @@ export function ExportModal({
                   format === "csv" ? "button--primary" : "button--secondary"
                 }`}
                 onClick={() => setFormat("csv")}
+                disabled={!authorization.allowed}
+                title={
+                  !authorization.allowed
+                    ? authorizationDeniedMessage
+                    : undefined
+                }
                 style={{ justifyContent: "center" }}
               >
                 CSV (Spreadsheet)
@@ -166,6 +221,15 @@ export function ExportModal({
                   format === "pdf" ? "button--primary" : "button--secondary"
                 }`}
                 onClick={() => setFormat("pdf")}
+                disabled={
+                  authorizationRequiredForAllFormats && !authorization.allowed
+                }
+                title={
+                  authorizationRequiredForAllFormats &&
+                  !authorization.allowed
+                    ? authorizationDeniedMessage
+                    : undefined
+                }
                 style={{ justifyContent: "center" }}
               >
                 PDF Executive Brief
@@ -176,11 +240,29 @@ export function ExportModal({
                   format === "json" ? "button--primary" : "button--secondary"
                 }`}
                 onClick={() => setFormat("json")}
+                disabled={
+                  authorizationRequiredForAllFormats && !authorization.allowed
+                }
+                title={
+                  authorizationRequiredForAllFormats &&
+                  !authorization.allowed
+                    ? authorizationDeniedMessage
+                    : undefined
+                }
                 style={{ justifyContent: "center" }}
               >
                 JSON Ledger Dump
               </button>
             </div>
+            {!authorization.allowed && (
+              <div
+                className="modal-info-callout"
+                role="alert"
+                style={{ marginTop: "12px" }}
+              >
+                {authorizationDeniedMessage}
+              </div>
+            )}
           </div>
 
           <div className="form-checkbox-row" style={{ marginTop: "12px" }}>
@@ -217,7 +299,10 @@ export function ExportModal({
             <button
               type="submit"
               className="button button--primary"
-              disabled={isExporting}
+              disabled={
+                isExporting ||
+                (formatRequiresAuthorization && !authorization.allowed)
+              }
             >
               {isExporting ? (
                 <>
